@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it and the papers it implements."
+title: "majorana-lattice"
+authors:
+  - name: "Moth Quantum"
+license: Apache-2.0
+repository-code: "https://github.com/moth-quantum/majorana-lattice"
+version: 0.1.0
+references:
+  - type: article
+    title: "A family of stabilizer codes for D(Z2) anyons and Majorana modes"
+    authors:
+      - family-names: Wootton
+        given-names: James R.
+    identifiers:
+      - type: other
+        value: "arXiv:1501.07779"
+  - type: article
+    title: "Measurements of Floquet code plaquette stabilizers"
+    authors:
+      - family-names: Wootton
+        given-names: James R.
+    identifiers:
+      - type: other
+        value: "arXiv:2210.13154"

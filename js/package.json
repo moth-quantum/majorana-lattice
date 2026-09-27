@@ -1,0 +1,8 @@
+{
+  "name": "majorana-lattice",
+  "version": "0.1.0",
+  "description": "Matching-code engine for the browser: stabilizer tableau plus dimer and Majorana bookkeeping, matching the Stim core",
+  "main": "engine.js",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/moth-quantum/majorana-lattice" }
+}

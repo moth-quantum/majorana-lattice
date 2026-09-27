@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Star lattice explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --bg: #eef1f3; --field: #e2e7eb; --ink: #1d2530; --muted: #5b6673; --rule: #cdd4da;
+  --panel: #f7f9fa; --btn: #ffffff; --btn-on: #1d2530; --btn-on-ink: #f7f9fa;
+  --x: #d4453f; --y: #4f9428; --z: #2f6fbf;
+  --vertex: #3c4652; --string: #8d99a6; --fermion: #f0a012;
+  --e: #7a5bd3; --m: #179a89; --maj: #d52f6b;
+  --shade0: rgba(255,255,255,0.55); --shade1: rgba(29,37,48,0.10);
+  --hl: #1d2530;
+  font-family: "Instrument Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--ink); background: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161b21; --field: #1e252d; --ink: #e4e9ee; --muted: #9aa5b1; --rule: #33404c;
+    --panel: #1b2128; --btn: #232b34; --btn-on: #e4e9ee; --btn-on-ink: #161b21;
+    --x: #f06a5f; --y: #7cc24e; --z: #5d9ae6;
+    --vertex: #b9c3cd; --string: #6f7d8b; --fermion: #ffb52e;
+    --e: #9d82ee; --m: #2cc0ab; --maj: #f2508a;
+    --shade0: rgba(255,255,255,0.06); --shade1: rgba(0,0,0,0.28); --hl: #e4e9ee;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161b21; --field: #1e252d; --ink: #e4e9ee; --muted: #9aa5b1; --rule: #33404c;
+  --panel: #1b2128; --btn: #232b34; --btn-on: #e4e9ee; --btn-on-ink: #161b21;
+  --x: #f06a5f; --y: #7cc24e; --z: #5d9ae6;
+  --vertex: #b9c3cd; --string: #6f7d8b; --fermion: #ffb52e;
+  --e: #9d82ee; --m: #2cc0ab; --maj: #f2508a;
+  --shade0: rgba(255,255,255,0.06); --shade1: rgba(0,0,0,0.28); --hl: #e4e9ee;
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+body { margin: 0; background: var(--bg); font-size: 15px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 100vh; }
+.board { background: var(--field); display: flex; flex-direction: column; padding: 20px 24px 16px; min-width: 0; }
+.board header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.hint { color: var(--muted); font-size: 14px; margin: 0; max-width: 60ch; }
+#svgwrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 320px; }
+svg#lat { width: 100%; height: auto; max-height: calc(100vh - 150px); display: block; touch-action: manipulation; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.sw.line { height: 4px; border-radius: 2px; }
+aside { background: var(--panel); border-left: 1px solid var(--rule); padding: 20px 20px 24px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; max-height: 100vh; }
+section h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--muted); }
+.tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+button, select { font: inherit; font-size: 14px; color: var(--ink); background: var(--btn); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px; cursor: pointer; text-align: left; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--z); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--btn-on); color: var(--btn-on-ink); border-color: var(--btn-on); }
+.tools button:last-child { grid-column: span 2; }
+.tools button { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+button kbd { font: inherit; font-size: 12px; opacity: 0.6; }
+.tooldesc { font-size: 13px; color: var(--muted); margin: 8px 0 0; min-height: 3em; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.row button { flex: 1; text-align: center; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.stat { border-top: 3px solid var(--c); padding-top: 4px; }
+.stat b { display: block; font-size: 22px; font-weight: 600; line-height: 1.2; }
+.stat small { font-size: 12px; color: var(--muted); }
+.warn { font-size: 13px; color: var(--maj); margin: 8px 0 0; }
+#pairs { font-size: 13px; margin: 0; padding: 0; list-style: none; }
+#pairs li { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--rule); }
+#log { font-size: 13px; margin: 0; padding: 0; list-style: none; max-height: 190px; overflow-y: auto; color: var(--muted); }
+#log li { padding: 2px 0; }
+#log li:first-child { color: var(--ink); }
+.pos { color: var(--z); } .neg { color: var(--fermion); font-weight: 600; } .und { color: var(--maj); }
+label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+textarea { width: 100%; height: 90px; font-size: 12px; background: var(--btn); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; }
+.hit { cursor: pointer; }
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  aside { border-left: 0; border-top: 1px solid var(--rule); max-height: none; }
+  svg#lat { max-height: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .flash { animation: flash 0.6s ease-out; }
+  @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="board">
+    <header>
+      <h1>Star lattice explorer</h1>
+      <p class="hint" id="hint">Click a link to measure it. The board wraps around at the edges.</p>
+    </header>
+    <div id="svgwrap"><svg id="lat" role="img" aria-label="Star lattice board"></svg></div>
+    <div class="legend">
+      <span><i class="sw line" style="background:var(--x)"></i>x link</span>
+      <span><i class="sw line" style="background:var(--y)"></i>y link</span>
+      <span><i class="sw line" style="background:var(--z)"></i>z link</span>
+      <span><i class="sw line" style="background:var(--string);height:7px"></i>dimer</span>
+      <span><i class="sw" style="background:var(--fermion);border-radius:50%;width:16px;height:16px;font-size:11px;font-weight:600;color:#2a1d05;display:inline-flex;align-items:center;justify-content:center;font-style:normal">&psi;</i>dimer holding a fermion</span>
+      <span><i class="sw" style="background:var(--e)"></i>e anyon</span>
+      <span><i class="sw" style="background:var(--m)"></i>m anyon</span>
+      <span><i class="sw" style="background:var(--maj);border-radius:50%"></i>Majorana</span>
+      <span><i class="sw line" style="background:repeating-linear-gradient(90deg,var(--maj) 0 4px,transparent 4px 7px);height:2px"></i>Majorana partners</span>
+    </div>
+  </main>
+  <aside>
+    <section>
+      <h2>Tool</h2>
+      <div class="tools" id="tools"></div>
+      <p class="tooldesc" id="tooldesc"></p>
+    </section>
+    <section>
+      <h2>Measure every link of one label</h2>
+      <div class="row">
+        <button data-round="x">All x links</button>
+        <button data-round="y">All y links</button>
+        <button data-round="z">All z links</button>
+      </div>
+    </section>
+    <section>
+      <h2>State</h2>
+      <div class="stats">
+        <div class="stat" style="--c:var(--fermion)"><b id="nf">0</b><small>fermions</small></div>
+        <div class="stat" style="--c:var(--e)"><b id="ne">0</b><small>e anyons</small></div>
+        <div class="stat" style="--c:var(--m)"><b id="nm">0</b><small>m anyons</small></div>
+        <div class="stat" style="--c:var(--maj)"><b id="nmaj">0</b><small>Majoranas</small></div>
+      </div>
+      <p class="warn" id="colwarn" hidden>An even-link loop wraps around the torus, so e and m can only be told apart locally.</p>
+    </section>
+    <section id="pairsec" hidden>
+      <h2>Majorana pairs</h2>
+      <ul id="pairs"></ul>
+    </section>
+    <section>
+      <h2>Options</h2>
+      <label class="check"><input type="checkbox" id="forceplus"> Force random outcomes to +1</label>
+      <label class="check"><input type="checkbox" id="shade"> Shade the e and m regions</label>
+      <label class="check"><input type="checkbox" id="threads" checked> Link each Majorana to its partner</label>
+      <div class="row" style="margin-top:8px">
+        <select id="size" aria-label="Board size"></select>
+      </div>
+    </section>
+    <section>
+      <h2>History</h2>
+      <div class="row" style="margin-bottom:8px">
+        <button id="undo">Undo</button>
+        <button id="reset">Reset</button>
+        <button id="copy">Copy log</button>
+      </div>
+      <ol id="log" reversed></ol>
+      <textarea id="logtext" hidden readonly aria-label="Run log as JSON"></textarea>
+    </section>
+  </aside>
+</div>
+<script>
+// Matching-code engine for the browser. Mirrors matching_code.py (the Stim core):
+// same pairing rules, same sign conventions, same action log, so any run can
+// be replayed exactly in Stim with MatchingCode.replay.
+
+// ---------------------------------------------------------------- PRNG
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---------------------------------------------------------------- Paulis
+// A Pauli is {x, z, r}: bit arrays (x=z=1 means Y) and a sign bit r (1 = minus).
+function pauli(n) { return { x: new Uint8Array(n), z: new Uint8Array(n), r: 0 }; }
+function pcopy(p) { return { x: p.x.slice(), z: p.z.slice(), r: p.r }; }
+function setP(p, q, P) {
+  p.x[q] = P === "X" || P === "Y" ? 1 : 0;
+  p.z[q] = P === "Z" || P === "Y" ? 1 : 0;
+}
+function g(x1, z1, x2, z2) {
+  if (!x1 && !z1) return 0;
+  if (x1 && z1) return z2 - x2;
+  if (x1) return z2 * (2 * x2 - 1);
+  return x2 * (1 - 2 * z2);
+}
+function anticommutes(a, b) {
+  let s = 0;
+  for (let q = 0; q < a.x.length; q++) s ^= (a.x[q] & b.z[q]) ^ (a.z[q] & b.x[q]);
+  return s === 1;
+}
+// a * b for commuting Paulis (real sign)
+function pmul(a, b) {
+  const n = a.x.length, out = pauli(n);
+  let e = 2 * a.r + 2 * b.r;
+  for (let q = 0; q < n; q++) {
+    e += g(a.x[q], a.z[q], b.x[q], b.z[q]);
+    out.x[q] = a.x[q] ^ b.x[q];
+    out.z[q] = a.z[q] ^ b.z[q];
+  }
+  e = ((e % 4) + 4) % 4;
+  if (e === 1 || e === 3) throw new Error("pmul of anticommuting Paulis");
+  out.r = e === 2 ? 1 : 0;
+  return out;
+}
+
+// ---------------------------------------------------------------- Tableau
+// Aaronson-Gottesman tableau: rows 0..n-1 destabilizers, n..2n-1 stabilizers.
+class Tableau {
+  constructor(n, rand) {
+    this.n = n; this.rand = rand;
+    this.rows = [];
+    for (let i = 0; i < 2 * n; i++) {
+      const p = pauli(n);
+      if (i < n) p.x[i] = 1; else p.z[i - n] = 1;   // |0...0>
+      this.rows.push(p);
+    }
+  }
+  _rowmul(h, i) { // row h := row i * row h
+    const a = this.rows[i], b = this.rows[h], n = this.n;
+    let e = 2 * a.r + 2 * b.r;
+    for (let q = 0; q < n; q++) {
+      e += g(a.x[q], a.z[q], b.x[q], b.z[q]);
+      b.x[q] ^= a.x[q]; b.z[q] ^= a.z[q];
+    }
+    b.r = (((e % 4) + 4) % 4) === 2 ? 1 : 0;
+  }
+  _deterministic(P) { // returns sign bit of P's value (0: +1, 1: -1)
+    const n = this.n;
+    let acc = pauli(n);
+    for (let i = 0; i < n; i++) if (anticommutes(this.rows[i], P)) {
+      const s = this.rows[i + n];
+      let e = 2 * s.r + 2 * acc.r;
+      for (let q = 0; q < n; q++) {
+        e += g(s.x[q], s.z[q], acc.x[q], acc.z[q]);
+        acc.x[q] ^= s.x[q]; acc.z[q] ^= s.z[q];
+      }
+      acc.r = (((e % 4) + 4) % 4) === 2 ? 1 : 0;
+    }
+    return acc.r ^ P.r;
+  }
+  peek(P) {
+    for (let i = this.n; i < 2 * this.n; i++) if (anticommutes(this.rows[i], P)) return 0;
+    return this._deterministic(P) ? -1 : 1;
+  }
+  // measure P; force = +1/-1 postselects a random outcome
+  measure(P, force = null) {
+    const n = this.n;
+    let p = -1;
+    for (let i = n; i < 2 * n; i++) if (anticommutes(this.rows[i], P)) { p = i; break; }
+    if (p < 0) return this._deterministic(P) ? -1 : 1;
+    for (let i = 0; i < 2 * n; i++)
+      if (i !== p && anticommutes(this.rows[i], P)) this._rowmul(i, p);
+    this.rows[p - n] = pcopy(this.rows[p]);
+    const out = force != null ? force : (this.rand() < 0.5 ? 1 : -1);
+    const np = pcopy(P); np.r = P.r ^ (out === -1 ? 1 : 0);
+    this.rows[p] = np;
+    return out;
+  }
+  apply(P) { // apply Pauli P as a unitary
+    for (const row of this.rows) if (anticommutes(row, P)) row.r ^= 1;
+  }
+}
+
+// ---------------------------------------------------------------- Code
+class MatchingCode {
+  constructor(lat, { seed = 1, plaquetteRaw = null } = {}) {
+    this.lat = lat;
+    this.n = lat.positions.length;
+    this.edges = lat.edges.map(([u, v, label, dx, dy]) => ({ u, v, label, d: [dx, dy] }));
+    this.incident = Array.from({ length: this.n }, () => []);
+    this.edges.forEach((E, e) => { this.incident[E.u].push(e); this.incident[E.v].push(e); });
+    this.seed = seed;
+    this.tab = new Tableau(this.n, mulberry32(seed));
+    this.pairs = new Map(); this.owner = new Array(this.n).fill(-1); this.next = 0;
+    this.log = []; this.force = null;
+    const seen = new Set();
+    for (let q = 0; q < this.n; q++) {
+      const e = this.incident[q].find(f => this.edges[f].label === "z");
+      if (seen.has(e)) continue;
+      seen.add(e);
+      const E = this.edges[e];
+      this._add({ a: E.u, b: E.v, path: [e], op: this.linkPauli(e), kind: "string" });
+    }
+    this.plaq = []; this.plaquetteRaw = [];
+    lat.faces.forEach((f, k) => {
+      const p = pauli(this.n);
+      for (const [q, P] of Object.entries(f.pauli)) setP(p, +q, P);
+      // vacuum = every plaquette at +1, so empty plaquettes carry no flux
+      const raw = this.tab.measure(p, plaquetteRaw ? plaquetteRaw[k] : 1);
+      this.plaquetteRaw.push(raw);
+      if (raw === -1) p.r ^= 1;
+      this.plaq.push(p);
+    });
+  }
+  linkPauli(e) {
+    const E = this.edges[e], p = pauli(this.n), L = E.label.toUpperCase();
+    setP(p, E.u, L); setP(p, E.v, L);
+    return p;
+  }
+  other(P, q) { return q === P.a ? P.b : P.a; }
+  pathFrom(P, q) { return q === P.a ? P.path.slice() : P.path.slice().reverse(); }
+  _add(P) { const id = this.next++; this.pairs.set(id, P); this.owner[P.a] = this.owner[P.b] = id; return id; }
+  _measure(op) {
+    if (this.force != null && this.tab.peek(op) === 0) return this.tab.measure(op, this.force);
+    return this.tab.measure(op);
+  }
+
+  // ---------------------------------------------------------- actions
+  measureLink(e) {
+    const E = this.edges[e], i = E.u, j = E.v, K = this.linkPauli(e);
+    const pi = this.owner[i], pj = this.owner[j];
+    let m;
+    if (pi === pj) {
+      this.pairs.delete(pi);
+      m = this._measure(K);
+      this._add({ a: i, b: j, path: [e], op: K, kind: "string" });
+    } else {
+      const A = this.pairs.get(pi), B = this.pairs.get(pj);
+      this.pairs.delete(pi); this.pairs.delete(pj);
+      const a = this.other(A, i), b = this.other(B, j);
+      const op = pmul(pmul(A.op, B.op), K);
+      m = this._measure(K);
+      const kind = A.kind === "string" && B.kind === "string" ? "string" : "majorana";
+      const path = simplify([...this.pathFrom(A, a), e, ...this.pathFrom(B, j)]);
+      this._add({ a: i, b: j, path: [e], op: K, kind: "string" });
+      this._add({ a, b, path, op, kind });
+    }
+    this.log.push({ action: "measure_link", edge: e, outcome: m });
+    return m;
+  }
+  applyLink(e) { this.tab.apply(this.linkPauli(e)); this.log.push({ action: "apply_link", edge: e }); }
+  applyPauli(q, P) {
+    const p = pauli(this.n); setP(p, q, P);
+    this.tab.apply(p); this.log.push({ action: "apply_pauli", qubit: q, pauli: P });
+  }
+  release(q) {
+    const P = this.pairs.get(this.owner[q]);
+    P.kind = P.kind === "string" ? "majorana" : "string";
+    this.log.push({ action: "release", qubit: q });
+  }
+  measureLabel(L) {
+    const out = [];
+    this.edges.forEach((E, e) => { if (E.label === L) out.push(this.measureLink(e)); });
+    return out;
+  }
+  hopOptions(q) {
+    const out = [];
+    for (const e of this.incident[q]) {
+      const j = this.edges[e].u === q ? this.edges[e].v : this.edges[e].u;
+      const Pj = this.pairs.get(this.owner[j]);
+      if (Pj.kind === "string" && Pj.path.length === 1 && this.owner[j] !== this.owner[q]) out.push({ edge: e, via: j, to: this.other(Pj, j) });
+    }
+    return out;
+  }
+  hop(q, e, correct = true) {
+    const j = this.edges[e].u === q ? this.edges[e].v : this.edges[e].u;
+    const Pj = this.pairs.get(this.owner[j]);
+    const k = this.other(Pj, j), old = this.pathFrom(Pj, j);
+    const m = this.measureLink(e);
+    if (m === -1 && correct) for (const f of old) this.applyLink(f);
+    return { to: k, outcome: m };
+  }
+
+  // ---------------------------------------------------------- reading
+  isDimer(P) { return P.kind === "string" && P.path.length === 1; }
+  majoranas() {
+    const out = [];
+    for (const P of this.pairs.values()) if (!this.isDimer(P)) out.push(P.a, P.b);
+    return out.sort((a, b) => a - b);
+  }
+  pairValue(id) { return this.tab.peek(this.pairs.get(id).op); }
+  plaqValues() { return this.plaq.map(p => this.tab.peek(p)); }
+  colouring() {
+    const count = new Array(this.edges.length).fill(0);
+    for (const P of this.pairs.values()) for (const e of P.path) count[e]++;
+    const owners = new Map();
+    this.lat.faces.forEach((f, k) => f.edges.forEach(e => {
+      if (!owners.has(e)) owners.set(e, []); owners.get(e).push(k);
+    }));
+    const nb = this.lat.faces.map(() => []);
+    for (const [e, fs] of owners) if (fs.length === 2 && fs[0] !== fs[1]) { nb[fs[0]].push([fs[1], e]); nb[fs[1]].push([fs[0], e]); }
+    const col = new Array(this.lat.faces.length).fill(-1);
+    let ok = true;
+    for (let s = 0; s < col.length; s++) {
+      if (col[s] >= 0) continue;
+      col[s] = 0; const st = [s];
+      while (st.length) {
+        const f = st.pop();
+        for (const [h, e] of nb[f]) {
+          const want = count[e] % 2 ? col[f] : 1 - col[f];
+          if (col[h] < 0) { col[h] = want; st.push(h); } else if (col[h] !== want) ok = false;
+        }
+      }
+    }
+    return { col, ok };
+  }
+  record() { return { lattice: this.lat.name, seed: this.seed, plaquette_raw: this.plaquetteRaw, log: this.log }; }
+
+  static replay(lat, rec, upTo = rec.log.length) {
+    const c = new MatchingCode(lat, { seed: rec.seed, plaquetteRaw: rec.plaquette_raw });
+    for (const s of rec.log.slice(0, upTo)) {
+      if (s.action === "measure_link") { c.force = s.outcome; c.measureLink(s.edge); c.force = null; }
+      else if (s.action === "apply_link") c.applyLink(s.edge);
+      else if (s.action === "apply_pauli") c.applyPauli(s.qubit, s.pauli);
+      else if (s.action === "release") c.release(s.qubit);
+    }
+    return c;
+  }
+}
+
+function simplify(path) {
+  const out = [];
+  for (const e of path) { if (out.length && out[out.length - 1] === e) out.pop(); else out.push(e); }
+  return out;
+}
+
+if (typeof module !== "undefined") module.exports = { MatchingCode, Tableau, pauli, setP };
+
+</script>
+<script>
+const LATTICES = {"star 4x4":{"name":"star 4x4","period":[6.9282,6.0],"positions":[[0.0,0.28],[0.2425,5.86],[6.6857,5.86],[0.0,0.72],[0.2425,1.14],[6.6857,1.14],[1.7321,0.28],[1.9745,5.86],[1.4896,5.86],[1.7321,0.72],[1.4896,1.14],[1.9745,1.14],[3.4641,0.28],[3.7066,5.86],[3.2216,5.86],[3.4641,0.72],[3.2216,1.14],[3.7066,1.14],[5.1962,0.28],[5.4386,5.86],[4.9537,5.86],[5.1962,0.72],[4.9537,1.14],[5.4386,1.14],[0.866,1.78],[1.1085,1.36],[0.6235,1.36],[0.866,2.22],[1.1085,2.64],[0.6235,2.64],[2.5981,1.78],[2.8406,1.36],[2.3556,1.36],[2.5981,2.22],[2.3556,2.64],[2.8406,2.64],[4.3301,1.78],[4.5726,1.36],[4.0876,1.36],[4.3301,2.22],[4.0876,2.64],[4.5726,2.64],[6.0622,1.78],[6.3047,1.36],[5.8197,1.36],[6.0622,2.22],[5.8197,2.64],[6.3047,2.64],[1.7321,3.28],[1.9745,2.86],[1.4896,2.86],[1.7321,3.72],[1.9745,4.14],[1.4896,4.14],[3.4641,3.28],[3.7066,2.86],[3.2216,2.86],[3.4641,3.72],[3.2216,4.14],[3.7066,4.14],[5.1962,3.28],[5.4386,2.86],[4.9537,2.86],[5.1962,3.72],[4.9537,4.14],[5.4386,4.14],[0.0,3.28],[0.2425,2.86],[6.6857,2.86],[0.0,3.72],[6.6857,4.14],[0.2425,4.14],[2.5981,4.78],[2.8406,4.36],[2.3556,4.36],[2.3556,5.64],[2.8406,5.64],[2.5981,5.22],[4.3301,4.78],[4.5726,4.36],[4.0876,4.36],[4.0876,5.64],[4.5726,5.64],[4.3301,5.22],[6.0622,4.78],[6.3047,4.36],[5.8197,4.36],[6.3047,5.64],[5.8197,5.64],[6.0622,5.22],[0.866,4.78],[1.1085,4.36],[0.6235,4.36],[0.6235,5.64],[1.1085,5.64],[0.866,5.22]],"edges":[[0,3,"z",0.0,0.44],[1,93,"x",0.3811,-0.22],[2,87,"y",-0.3811,-0.22],[6,9,"z",0.0,0.44],[7,75,"x",0.3811,-0.22],[8,94,"y",-0.3811,-0.22],[12,15,"z",0.0,0.44],[13,81,"x",0.3811,-0.22],[14,76,"y",-0.3811,-0.22],[18,21,"z",0.0,0.44],[19,88,"x",0.3811,-0.22],[20,82,"y",-0.3811,-0.22],[24,27,"z",0.0,0.44],[25,10,"x",0.3811,-0.22],[26,4,"y",-0.3811,-0.22],[30,33,"z",0.0,0.44],[31,16,"x",0.3811,-0.22],[32,11,"y",-0.3811,-0.22],[36,39,"z",0.0,0.44],[37,22,"x",0.3811,-0.22],[38,17,"y",-0.3811,-0.22],[42,45,"z",0.0,0.44],[43,5,"x",0.3811,-0.22],[44,23,"y",-0.3811,-0.22],[48,51,"z",0.0,0.44],[49,34,"x",0.3811,-0.22],[50,28,"y",-0.3811,-0.22],[54,57,"z",0.0,0.44],[55,40,"x",0.3811,-0.22],[56,35,"y",-0.3811,-0.22],[60,63,"z",0.0,0.44],[61,46,"x",0.3811,-0.22],[62,41,"y",-0.3811,-0.22],[66,69,"z",0.0,0.44],[67,29,"x",0.3811,-0.22],[68,47,"y",-0.3811,-0.22],[72,77,"z",0.0,0.44],[73,58,"x",0.3811,-0.22],[74,52,"y",-0.3811,-0.22],[78,83,"z",0.0,0.44],[79,64,"x",0.3811,-0.22],[80,59,"y",-0.3811,-0.22],[84,89,"z",0.0,0.44],[85,70,"x",0.3811,-0.22],[86,65,"y",-0.3811,-0.22],[90,95,"z",0.0,0.44],[91,53,"x",0.3811,-0.22],[92,71,"y",-0.3811,-0.22],[0,1,"y",0.2425,-0.42],[0,2,"x",-0.2425,-0.42],[1,2,"z",-0.485,0.0],[3,4,"x",0.2425,0.42],[3,5,"y",-0.2425,0.42],[4,5,"z",-0.485,0.0],[6,7,"y",0.2425,-0.42],[6,8,"x",-0.2425,-0.42],[7,8,"z",-0.485,0.0],[9,10,"y",-0.2425,0.42],[9,11,"x",0.2425,0.42],[10,11,"z",0.485,0.0],[12,13,"y",0.2425,-0.42],[12,14,"x",-0.2425,-0.42],[13,14,"z",-0.485,0.0],[15,16,"y",-0.2425,0.42],[15,17,"x",0.2425,0.42],[16,17,"z",0.485,0.0],[18,19,"y",0.2425,-0.42],[18,20,"x",-0.2425,-0.42],[19,20,"z",-0.485,0.0],[21,22,"y",-0.2425,0.42],[21,23,"x",0.2425,0.42],[22,23,"z",0.485,0.0],[24,25,"y",0.2425,-0.42],[24,26,"x",-0.2425,-0.42],[25,26,"z",-0.485,0.0],[27,28,"x",0.2425,0.42],[27,29,"y",-0.2425,0.42],[28,29,"z",-0.485,0.0],[30,31,"y",0.2425,-0.42],[30,32,"x",-0.2425,-0.42],[31,32,"z",-0.485,0.0],[33,34,"y",-0.2425,0.42],[33,35,"x",0.2425,0.42],[34,35,"z",0.485,0.0],[36,37,"y",0.2425,-0.42],[36,38,"x",-0.2425,-0.42],[37,38,"z",-0.485,0.0],[39,40,"y",-0.2425,0.42],[39,41,"x",0.2425,0.42],[40,41,"z",0.485,0.0],[42,43,"y",0.2425,-0.42],[42,44,"x",-0.2425,-0.42],[43,44,"z",-0.485,0.0],[45,46,"y",-0.2425,0.42],[45,47,"x",0.2425,0.42],[46,47,"z",0.485,0.0],[48,49,"y",0.2425,-0.42],[48,50,"x",-0.2425,-0.42],[49,50,"z",-0.485,0.0],[51,52,"x",0.2425,0.42],[51,53,"y",-0.2425,0.42],[52,53,"z",-0.485,0.0],[54,55,"y",0.2425,-0.42],[54,56,"x",-0.2425,-0.42],[55,56,"z",-0.485,0.0],[57,58,"y",-0.2425,0.42],[57,59,"x",0.2425,0.42],[58,59,"z",0.485,0.0],[60,61,"y",0.2425,-0.42],[60,62,"x",-0.2425,-0.42],[61,62,"z",-0.485,0.0],[63,64,"y",-0.2425,0.42],[63,65,"x",0.2425,0.42],[64,65,"z",0.485,0.0],[66,67,"y",0.2425,-0.42],[66,68,"x",-0.2425,-0.42],[67,68,"z",-0.485,0.0],[69,70,"y",-0.2425,0.42],[69,71,"x",0.2425,0.42],[70,71,"z",0.485,0.0],[72,73,"y",0.2425,-0.42],[72,74,"x",-0.2425,-0.42],[73,74,"z",-0.485,0.0],[75,76,"z",0.485,0.0],[75,77,"y",0.2425,-0.42],[76,77,"x",-0.2425,-0.42],[78,79,"y",0.2425,-0.42],[78,80,"x",-0.2425,-0.42],[79,80,"z",-0.485,0.0],[81,82,"z",0.485,0.0],[81,83,"y",0.2425,-0.42],[82,83,"x",-0.2425,-0.42],[84,85,"y",0.2425,-0.42],[84,86,"x",-0.2425,-0.42],[85,86,"z",-0.485,0.0],[87,88,"z",-0.485,0.0],[87,89,"x",-0.2425,-0.42],[88,89,"y",0.2425,-0.42],[90,91,"y",0.2425,-0.42],[90,92,"x",-0.2425,-0.42],[91,92,"z",-0.485,0.0],[93,94,"z",0.485,0.0],[93,95,"y",0.2425,-0.42],[94,95,"x",-0.2425,-0.42]],"faces":[{"vertices":[0,2,1],"edges":[49,50,48],"pauli":{"0":"Z","2":"Y","1":"X"}},{"vertices":[0,1,93,94,8,6,9,10,25,26,4,3],"edges":[48,1,141,5,55,3,57,13,74,14,51,0],"pauli":{"0":"X","1":"Z","93":"Y","94":"X","8":"Z","6":"Y","9":"X","10":"Z","25":"Y","26":"X","4":"Z","3":"Y"}},{"vertices":[0,3,5,43,44,23,21,18,19,88,87,2],"edges":[0,52,22,92,23,70,9,66,10,135,2,49],"pauli":{"0":"Y","3":"X","5":"Z","43":"Y","44":"X","23":"Z","21":"Y","18":"X","19":"Z","88":"Y","87":"X","2":"Z"}},{"vertices":[1,2,87,89,84,85,70,71,92,90,95,93],"edges":[50,2,136,42,132,43,119,47,139,45,142,1],"pauli":{"1":"Y","2":"X","87":"Z","89":"Y","84":"X","85":"Z","70":"Y","71":"X","92":"Z","90":"Y","95":"X","93":"Z"}},{"vertices":[3,4,5],"edges":[51,53,52],"pauli":{"3":"Z","4":"Y","5":"X"}},{"vertices":[4,26,24,27,29,67,68,47,45,42,43,5],"edges":[14,73,12,76,34,116,35,94,21,90,22,53],"pauli":{"4":"X","26":"Z","24":"Y","27":"X","29":"Z","67":"Y","68":"X","47":"Z","45":"Y","42":"X","43":"Z","5":"Y"}},{"vertices":[6,8,7],"edges":[55,56,54],"pauli":{"6":"Z","8":"Y","7":"X"}},{"vertices":[6,7,75,76,14,12,15,16,31,32,11,9],"edges":[54,4,123,8,61,6,63,16,80,17,58,3],"pauli":{"6":"X","7":"Z","75":"Y","76":"X","14":"Z","12":"Y","15":"X","16":"Z","31":"Y","32":"X","11":"Z","9":"Y"}},{"vertices":[7,8,94,95,90,91,53,52,74,72,77,75],"edges":[56,5,143,45,138,46,101,38,121,36,124,4],"pauli":{"7":"Y","8":"X","94":"Z","95":"Y","90":"X","91":"Z","53":"Y","52":"X","74":"Z","72":"Y","77":"X","75":"Z"}},{"vertices":[9,11,10],"edges":[58,59,57],"pauli":{"9":"Z","11":"Y","10":"X"}},{"vertices":[10,11,32,30,33,34,49,50,28,27,24,25],"edges":[59,17,79,15,81,25,98,26,75,12,72,13],"pauli":{"10":"Y","11":"X","32":"Z","30":"Y","33":"X","34":"Z","49":"Y","50":"X","28":"Z","27":"Y","24":"X","25":"Z"}},{"vertices":[12,14,13],"edges":[61,62,60],"pauli":{"12":"Z","14":"Y","13":"X"}},{"vertices":[12,13,81,82,20,18,21,22,37,38,17,15],"edges":[60,7,129,11,67,9,69,19,86,20,64,6],"pauli":{"12":"X","13":"Z","81":"Y","82":"X","20":"Z","18":"Y","21":"X","22":"Z","37":"Y","38":"X","17":"Z","15":"Y"}},{"vertices":[13,14,76,77,72,73,58,59,80,78,83,81],"edges":[62,8,125,36,120,37,107,41,127,39,130,7],"pauli":{"13":"Y","14":"X","76":"Z","77":"Y","72":"X","73":"Z","58":"Y","59":"X","80":"Z","78":"Y","83":"X","81":"Z"}},{"vertices":[15,17,16],"edges":[64,65,63],"pauli":{"15":"Z","17":"Y","16":"X"}},{"vertices":[16,17,38,36,39,40,55,56,35,33,30,31],"edges":[65,20,85,18,87,28,104,29,82,15,78,16],"pauli":{"16":"Y","17":"X","38":"Z","36":"Y","39":"X","40":"Z","55":"Y","56":"X","35":"Z","33":"Y","30":"X","31":"Z"}},{"vertices":[18,20,19],"edges":[67,68,66],"pauli":{"18":"Z","20":"Y","19":"X"}},{"vertices":[19,20,82,83,78,79,64,65,86,84,89,88],"edges":[68,11,131,39,126,40,113,44,133,42,137,10],"pauli":{"19":"Y","20":"X","82":"Z","83":"Y","78":"X","79":"Z","64":"Y","65":"X","86":"Z","84":"Y","89":"X","88":"Z"}},{"vertices":[21,23,22],"edges":[70,71,69],"pauli":{"21":"Z","23":"Y","22":"X"}},{"vertices":[22,23,44,42,45,46,61,62,41,39,36,37],"edges":[71,23,91,21,93,31,110,32,88,18,84,19],"pauli":{"22":"Y","23":"X","44":"Z","42":"Y","45":"X","46":"Z","61":"Y","62":"X","41":"Z","39":"Y","36":"X","37":"Z"}},{"vertices":[24,26,25],"edges":[73,74,72],"pauli":{"24":"Z","26":"Y","25":"X"}},{"vertices":[27,28,29],"edges":[75,77,76],"pauli":{"27":"Z","28":"Y","29":"X"}},{"vertices":[28,50,48,51,53,91,92,71,69,66,67,29],"edges":[26,97,24,100,46,140,47,118,33,114,34,77],"pauli":{"28":"X","50":"Z","48":"Y","51":"X","53":"Z","91":"Y","92":"X","71":"Z","69":"Y","66":"X","67":"Z","29":"Y"}},{"vertices":[30,32,31],"edges":[79,80,78],"pauli":{"30":"Z","32":"Y","31":"X"}},{"vertices":[33,35,34],"edges":[82,83,81],"pauli":{"33":"Z","35":"Y","34":"X"}},{"vertices":[34,35,56,54,57,58,73,74,52,51,48,49],"edges":[83,29,103,27,105,37,122,38,99,24,96,25],"pauli":{"34":"Y","35":"X","56":"Z","54":"Y","57":"X","58":"Z","73":"Y","74":"X","52":"Z","51":"Y","48":"X","49":"Z"}},{"vertices":[36,38,37],"edges":[85,86,84],"pauli":{"36":"Z","38":"Y","37":"X"}},{"vertices":[39,41,40],"edges":[88,89,87],"pauli":{"39":"Z","41":"Y","40":"X"}},{"vertices":[40,41,62,60,63,64,79,80,59,57,54,55],"edges":[89,32,109,30,111,40,128,41,106,27,102,28],"pauli":{"40":"Y","41":"X","62":"Z","60":"Y","63":"X","64":"Z","79":"Y","80":"X","59":"Z","57":"Y","54":"X","55":"Z"}},{"vertices":[42,44,43],"edges":[91,92,90],"pauli":{"42":"Z","44":"Y","43":"X"}},{"vertices":[45,47,46],"edges":[94,95,93],"pauli":{"45":"Z","47":"Y","46":"X"}},{"vertices":[46,47,68,66,69,70,85,86,65,63,60,61],"edges":[95,35,115,33,117,43,134,44,112,30,108,31],"pauli":{"46":"Y","47":"X","68":"Z","66":"Y","69":"X","70":"Z","85":"Y","86":"X","65":"Z","63":"Y","60":"X","61":"Z"}},{"vertices":[48,50,49],"edges":[97,98,96],"pauli":{"48":"Z","50":"Y","49":"X"}},{"vertices":[51,52,53],"edges":[99,101,100],"pauli":{"51":"Z","52":"Y","53":"X"}},{"vertices":[54,56,55],"edges":[103,104,102],"pauli":{"54":"Z","56":"Y","55":"X"}},{"vertices":[57,59,58],"edges":[106,107,105],"pauli":{"57":"Z","59":"Y","58":"X"}},{"vertices":[60,62,61],"edges":[109,110,108],"pauli":{"60":"Z","62":"Y","61":"X"}},{"vertices":[63,65,64],"edges":[112,113,111],"pauli":{"63":"Z","65":"Y","64":"X"}},{"vertices":[66,68,67],"edges":[115,116,114],"pauli":{"66":"Z","68":"Y","67":"X"}},{"vertices":[69,71,70],"edges":[118,119,117],"pauli":{"69":"Z","71":"Y","70":"X"}},{"vertices":[72,74,73],"edges":[121,122,120],"pauli":{"72":"Z","74":"Y","73":"X"}},{"vertices":[75,77,76],"edges":[124,125,123],"pauli":{"75":"X","77":"Z","76":"Y"}},{"vertices":[78,80,79],"edges":[127,128,126],"pauli":{"78":"Z","80":"Y","79":"X"}},{"vertices":[81,83,82],"edges":[130,131,129],"pauli":{"81":"X","83":"Z","82":"Y"}},{"vertices":[84,86,85],"edges":[133,134,132],"pauli":{"84":"Z","86":"Y","85":"X"}},{"vertices":[87,88,89],"edges":[135,137,136],"pauli":{"87":"Y","88":"X","89":"Z"}},{"vertices":[90,92,91],"edges":[139,140,138],"pauli":{"90":"Z","92":"Y","91":"X"}},{"vertices":[93,95,94],"edges":[142,143,141],"pauli":{"93":"X","95":"Z","94":"Y"}}]},"star 6x4":{"name":"star 6x4","period":[10.3923,6.0],"positions":[[0.0,0.28],[0.2425,5.86],[10.1498,5.86],[0.0,0.72],[0.2425,1.14],[10.1498,1.14],[1.7321,0.28],[1.9745,5.86],[1.4896,5.86],[1.7321,0.72],[1.4896,1.14],[1.9745,1.14],[3.4641,0.28],[3.7066,5.86],[3.2216,5.86],[3.4641,0.72],[3.2216,1.14],[3.7066,1.14],[5.1962,0.28],[5.4386,5.86],[4.9537,5.86],[5.1962,0.72],[4.9537,1.14],[5.4386,1.14],[6.9282,0.28],[7.1707,5.86],[6.6857,5.86],[6.9282,0.72],[6.6857,1.14],[7.1707,1.14],[8.6603,0.28],[8.9027,5.86],[8.4178,5.86],[8.6603,0.72],[8.4178,1.14],[8.9027,1.14],[0.866,1.78],[1.1085,1.36],[0.6235,1.36],[0.866,2.22],[1.1085,2.64],[0.6235,2.64],[2.5981,1.78],[2.8406,1.36],[2.3556,1.36],[2.5981,2.22],[2.3556,2.64],[2.8406,2.64],[4.3301,1.78],[4.5726,1.36],[4.0876,1.36],[4.3301,2.22],[4.0876,2.64],[4.5726,2.64],[6.0622,1.78],[6.3047,1.36],[5.8197,1.36],[6.0622,2.22],[5.8197,2.64],[6.3047,2.64],[7.7942,1.78],[8.0367,1.36],[7.5517,1.36],[7.7942,2.22],[7.5517,2.64],[8.0367,2.64],[9.5263,1.78],[9.7688,1.36],[9.2838,1.36],[9.5263,2.22],[9.2838,2.64],[9.7688,2.64],[1.7321,3.28],[1.9745,2.86],[1.4896,2.86],[1.7321,3.72],[1.9745,4.14],[1.4896,4.14],[3.4641,3.28],[3.7066,2.86],[3.2216,2.86],[3.4641,3.72],[3.2216,4.14],[3.7066,4.14],[5.1962,3.28],[5.4386,2.86],[4.9537,2.86],[5.1962,3.72],[4.9537,4.14],[5.4386,4.14],[6.9282,3.28],[7.1707,2.86],[6.6857,2.86],[6.9282,3.72],[6.6857,4.14],[7.1707,4.14],[8.6603,3.28],[8.9027,2.86],[8.4178,2.86],[8.6603,3.72],[8.4178,4.14],[8.9027,4.14],[10.3923,3.28],[0.2425,2.86],[10.1498,2.86],[10.3923,3.72],[10.1498,4.14],[0.2425,4.14],[2.5981,4.78],[2.8406,4.36],[2.3556,4.36],[2.3556,5.64],[2.8406,5.64],[2.5981,5.22],[4.3301,4.78],[4.5726,4.36],[4.0876,4.36],[4.0876,5.64],[4.5726,5.64],[4.3301,5.22],[6.0622,4.78],[6.3047,4.36],[5.8197,4.36],[6.3047,5.64],[5.8197,5.64],[6.0622,5.22],[7.7942,4.78],[8.0367,4.36],[7.5517,4.36],[7.5517,5.64],[8.0367,5.64],[7.7942,5.22],[9.5263,4.78],[9.7688,4.36],[9.2838,4.36],[9.2838,5.64],[9.7688,5.64],[9.5263,5.22],[0.866,4.78],[1.1085,4.36],[0.6235,4.36],[0.6235,5.64],[1.1085,5.64],[0.866,5.22]],"edges":[[0,3,"z",0.0,0.44],[1,129,"x",0.3811,-0.22],[2,123,"y",-0.3811,-0.22],[6,9,"z",0.0,0.44],[7,135,"x",0.3811,-0.22],[8,130,"y",-0.3811,-0.22],[12,15,"z",0.0,0.44],[13,141,"x",0.3811,-0.22],[14,136,"y",-0.3811,-0.22],[18,21,"z",0.0,0.44],[19,111,"x",0.3811,-0.22],[20,142,"y",-0.3811,-0.22],[24,27,"z",0.0,0.44],[25,117,"x",0.3811,-0.22],[26,112,"y",-0.3811,-0.22],[30,33,"z",0.0,0.44],[31,124,"x",0.3811,-0.22],[32,118,"y",-0.3811,-0.22],[36,39,"z",0.0,0.44],[37,10,"x",0.3811,-0.22],[38,4,"y",-0.3811,-0.22],[42,45,"z",0.0,0.44],[43,16,"x",0.3811,-0.22],[44,11,"y",-0.3811,-0.22],[48,51,"z",0.0,0.44],[49,22,"x",0.3811,-0.22],[50,17,"y",-0.3811,-0.22],[54,57,"z",0.0,0.44],[55,28,"x",0.3811,-0.22],[56,23,"y",-0.3811,-0.22],[60,63,"z",0.0,0.44],[61,34,"x",0.3811,-0.22],[62,29,"y",-0.3811,-0.22],[66,69,"z",0.0,0.44],[67,5,"x",0.3811,-0.22],[68,35,"y",-0.3811,-0.22],[72,75,"z",0.0,0.44],[73,46,"x",0.3811,-0.22],[74,40,"y",-0.3811,-0.22],[78,81,"z",0.0,0.44],[79,52,"x",0.3811,-0.22],[80,47,"y",-0.3811,-0.22],[84,87,"z",0.0,0.44],[85,58,"x",0.3811,-0.22],[86,53,"y",-0.3811,-0.22],[90,93,"z",0.0,0.44],[91,64,"x",0.3811,-0.22],[92,59,"y",-0.3811,-0.22],[96,99,"z",0.0,0.44],[97,70,"x",0.3811,-0.22],[98,65,"y",-0.3811,-0.22],[102,105,"z",0.0,0.44],[103,41,"x",0.3811,-0.22],[104,71,"y",-0.3811,-0.22],[108,113,"z",0.0,0.44],[109,82,"x",0.3811,-0.22],[110,76,"y",-0.3811,-0.22],[114,119,"z",0.0,0.44],[115,88,"x",0.3811,-0.22],[116,83,"y",-0.3811,-0.22],[120,125,"z",0.0,0.44],[121,94,"x",0.3811,-0.22],[122,89,"y",-0.3811,-0.22],[126,131,"z",0.0,0.44],[127,100,"x",0.3811,-0.22],[128,95,"y",-0.3811,-0.22],[132,137,"z",0.0,0.44],[133,106,"x",0.3811,-0.22],[134,101,"y",-0.3811,-0.22],[138,143,"z",0.0,0.44],[139,77,"x",0.3811,-0.22],[140,107,"y",-0.3811,-0.22],[0,1,"y",0.2425,-0.42],[0,2,"x",-0.2425,-0.42],[1,2,"z",-0.485,0.0],[3,4,"x",0.2425,0.42],[3,5,"y",-0.2425,0.42],[4,5,"z",-0.485,0.0],[6,7,"y",0.2425,-0.42],[6,8,"x",-0.2425,-0.42],[7,8,"z",-0.485,0.0],[9,10,"y",-0.2425,0.42],[9,11,"x",0.2425,0.42],[10,11,"z",0.485,0.0],[12,13,"y",0.2425,-0.42],[12,14,"x",-0.2425,-0.42],[13,14,"z",-0.485,0.0],[15,16,"y",-0.2425,0.42],[15,17,"x",0.2425,0.42],[16,17,"z",0.485,0.0],[18,19,"y",0.2425,-0.42],[18,20,"x",-0.2425,-0.42],[19,20,"z",-0.485,0.0],[21,22,"y",-0.2425,0.42],[21,23,"x",0.2425,0.42],[22,23,"z",0.485,0.0],[24,25,"y",0.2425,-0.42],[24,26,"x",-0.2425,-0.42],[25,26,"z",-0.485,0.0],[27,28,"y",-0.2425,0.42],[27,29,"x",0.2425,0.42],[28,29,"z",0.485,0.0],[30,31,"y",0.2425,-0.42],[30,32,"x",-0.2425,-0.42],[31,32,"z",-0.485,0.0],[33,34,"y",-0.2425,0.42],[33,35,"x",0.2425,0.42],[34,35,"z",0.485,0.0],[36,37,"y",0.2425,-0.42],[36,38,"x",-0.2425,-0.42],[37,38,"z",-0.485,0.0],[39,40,"x",0.2425,0.42],[39,41,"y",-0.2425,0.42],[40,41,"z",-0.485,0.0],[42,43,"y",0.2425,-0.42],[42,44,"x",-0.2425,-0.42],[43,44,"z",-0.485,0.0],[45,46,"y",-0.2425,0.42],[45,47,"x",0.2425,0.42],[46,47,"z",0.485,0.0],[48,49,"y",0.2425,-0.42],[48,50,"x",-0.2425,-0.42],[49,50,"z",-0.485,0.0],[51,52,"y",-0.2425,0.42],[51,53,"x",0.2425,0.42],[52,53,"z",0.485,0.0],[54,55,"y",0.2425,-0.42],[54,56,"x",-0.2425,-0.42],[55,56,"z",-0.485,0.0],[57,58,"y",-0.2425,0.42],[57,59,"x",0.2425,0.42],[58,59,"z",0.485,0.0],[60,61,"y",0.2425,-0.42],[60,62,"x",-0.2425,-0.42],[61,62,"z",-0.485,0.0],[63,64,"y",-0.2425,0.42],[63,65,"x",0.2425,0.42],[64,65,"z",0.485,0.0],[66,67,"y",0.2425,-0.42],[66,68,"x",-0.2425,-0.42],[67,68,"z",-0.485,0.0],[69,70,"y",-0.2425,0.42],[69,71,"x",0.2425,0.42],[70,71,"z",0.485,0.0],[72,73,"y",0.2425,-0.42],[72,74,"x",-0.2425,-0.42],[73,74,"z",-0.485,0.0],[75,76,"x",0.2425,0.42],[75,77,"y",-0.2425,0.42],[76,77,"z",-0.485,0.0],[78,79,"y",0.2425,-0.42],[78,80,"x",-0.2425,-0.42],[79,80,"z",-0.485,0.0],[81,82,"y",-0.2425,0.42],[81,83,"x",0.2425,0.42],[82,83,"z",0.485,0.0],[84,85,"y",0.2425,-0.42],[84,86,"x",-0.2425,-0.42],[85,86,"z",-0.485,0.0],[87,88,"y",-0.2425,0.42],[87,89,"x",0.2425,0.42],[88,89,"z",0.485,0.0],[90,91,"y",0.2425,-0.42],[90,92,"x",-0.2425,-0.42],[91,92,"z",-0.485,0.0],[93,94,"y",-0.2425,0.42],[93,95,"x",0.2425,0.42],[94,95,"z",0.485,0.0],[96,97,"y",0.2425,-0.42],[96,98,"x",-0.2425,-0.42],[97,98,"z",-0.485,0.0],[99,100,"y",-0.2425,0.42],[99,101,"x",0.2425,0.42],[100,101,"z",0.485,0.0],[102,103,"y",0.2425,-0.42],[102,104,"x",-0.2425,-0.42],[103,104,"z",-0.485,0.0],[105,106,"y",-0.2425,0.42],[105,107,"x",0.2425,0.42],[106,107,"z",0.485,0.0],[108,109,"y",0.2425,-0.42],[108,110,"x",-0.2425,-0.42],[109,110,"z",-0.485,0.0],[111,112,"z",0.485,0.0],[111,113,"y",0.2425,-0.42],[112,113,"x",-0.2425,-0.42],[114,115,"y",0.2425,-0.42],[114,116,"x",-0.2425,-0.42],[115,116,"z",-0.485,0.0],[117,118,"z",0.485,0.0],[117,119,"y",0.2425,-0.42],[118,119,"x",-0.2425,-0.42],[120,121,"y",0.2425,-0.42],[120,122,"x",-0.2425,-0.42],[121,122,"z",-0.485,0.0],[123,124,"z",-0.485,0.0],[123,125,"x",-0.2425,-0.42],[124,125,"y",0.2425,-0.42],[126,127,"y",0.2425,-0.42],[126,128,"x",-0.2425,-0.42],[127,128,"z",-0.485,0.0],[129,130,"z",0.485,0.0],[129,131,"y",0.2425,-0.42],[130,131,"x",-0.2425,-0.42],[132,133,"y",0.2425,-0.42],[132,134,"x",-0.2425,-0.42],[133,134,"z",-0.485,0.0],[135,136,"z",0.485,0.0],[135,137,"y",0.2425,-0.42],[136,137,"x",-0.2425,-0.42],[138,139,"y",0.2425,-0.42],[138,140,"x",-0.2425,-0.42],[139,140,"z",-0.485,0.0],[141,142,"z",0.485,0.0],[141,143,"y",0.2425,-0.42],[142,143,"x",-0.2425,-0.42]],"faces":[{"vertices":[0,2,1],"edges":[73,74,72],"pauli":{"0":"Z","2":"Y","1":"X"}},{"vertices":[0,1,129,130,8,6,9,10,37,38,4,3],"edges":[72,1,201,5,79,3,81,19,110,20,75,0],"pauli":{"0":"X","1":"Z","129":"Y","130":"X","8":"Z","6":"Y","9":"X","10":"Z","37":"Y","38":"X","4":"Z","3":"Y"}},{"vertices":[0,3,5,67,68,35,33,30,31,124,123,2],"edges":[0,76,34,140,35,106,15,102,16,195,2,73],"pauli":{"0":"Y","3":"X","5":"Z","67":"Y","68":"X","35":"Z","33":"Y","30":"X","31":"Z","124":"Y","123":"X","2":"Z"}},{"vertices":[1,2,123,125,120,121,94,95,128,126,131,129],"edges":[74,2,196,60,192,61,167,65,199,63,202,1],"pauli":{"1":"Y","2":"X","123":"Z","125":"Y","120":"X","121":"Z","94":"Y","95":"X","128":"Z","126":"Y","131":"X","129":"Z"}},{"vertices":[3,4,5],"edges":[75,77,76],"pauli":{"3":"Z","4":"Y","5":"X"}},{"vertices":[4,38,36,39,41,103,104,71,69,66,67,5],"edges":[20,109,18,112,52,176,53,142,33,138,34,77],"pauli":{"4":"X","38":"Z","36":"Y","39":"X","41":"Z","103":"Y","104":"X","71":"Z","69":"Y","66":"X","67":"Z","5":"Y"}},{"vertices":[6,8,7],"edges":[79,80,78],"pauli":{"6":"Z","8":"Y","7":"X"}},{"vertices":[6,7,135,136,14,12,15,16,43,44,11,9],"edges":[78,4,207,8,85,6,87,22,116,23,82,3],"pauli":{"6":"X","7":"Z","135":"Y","136":"X","14":"Z","12":"Y","15":"X","16":"Z","43":"Y","44":"X","11":"Z","9":"Y"}},{"vertices":[7,8,130,131,126,127,100,101,134,132,137,135],"edges":[80,5,203,63,198,64,173,68,205,66,208,4],"pauli":{"7":"Y","8":"X","130":"Z","131":"Y","126":"X","127":"Z","100":"Y","101":"X","134":"Z","132":"Y","137":"X","135":"Z"}},{"vertices":[9,11,10],"edges":[82,83,81],"pauli":{"9":"Z","11":"Y","10":"X"}},{"vertices":[10,11,44,42,45,46,73,74,40,39,36,37],"edges":[83,23,115,21,117,37,146,38,111,18,108,19],"pauli":{"10":"Y","11":"X","44":"Z","42":"Y","45":"X","46":"Z","73":"Y","74":"X","40":"Z","39":"Y","36":"X","37":"Z"}},{"vertices":[12,14,13],"edges":[85,86,84],"pauli":{"12":"Z","14":"Y","13":"X"}},{"vertices":[12,13,141,142,20,18,21,22,49,50,17,15],"edges":[84,7,213,11,91,9,93,25,122,26,88,6],"pauli":{"12":"X","13":"Z","141":"Y","142":"X","20":"Z","18":"Y","21":"X","22":"Z","49":"Y","50":"X","17":"Z","15":"Y"}},{"vertices":[13,14,136,137,132,133,106,107,140,138,143,141],"edges":[86,8,209,66,204,67,179,71,211,69,214,7],"pauli":{"13":"Y","14":"X","136":"Z","137":"Y","132":"X","133":"Z","106":"Y","107":"X","140":"Z","138":"Y","143":"X","141":"Z"}},{"vertices":[15,17,16],"edges":[88,89,87],"pauli":{"15":"Z","17":"Y","16":"X"}},{"vertices":[16,17,50,48,51,52,79,80,47,45,42,43],"edges":[89,26,121,24,123,40,152,41,118,21,114,22],"pauli":{"16":"Y","17":"X","50":"Z","48":"Y","51":"X","52":"Z","79":"Y","80":"X","47":"Z","45":"Y","42":"X","43":"Z"}},{"vertices":[18,20,19],"edges":[91,92,90],"pauli":{"18":"Z","20":"Y","19":"X"}},{"vertices":[18,19,111,112,26,24,27,28,55,56,23,21],"edges":[90,10,183,14,97,12,99,28,128,29,94,9],"pauli":{"18":"X","19":"Z","111":"Y","112":"X","26":"Z","24":"Y","27":"X","28":"Z","55":"Y","56":"X","23":"Z","21":"Y"}},{"vertices":[19,20,142,143,138,139,77,76,110,108,113,111],"edges":[92,11,215,69,210,70,149,56,181,54,184,10],"pauli":{"19":"Y","20":"X","142":"Z","143":"Y","138":"X","139":"Z","77":"Y","76":"X","110":"Z","108":"Y","113":"X","111":"Z"}},{"vertices":[21,23,22],"edges":[94,95,93],"pauli":{"21":"Z","23":"Y","22":"X"}},{"vertices":[22,23,56,54,57,58,85,86,53,51,48,49],"edges":[95,29,127,27,129,43,158,44,124,24,120,25],"pauli":{"22":"Y","23":"X","56":"Z","54":"Y","57":"X","58":"Z","85":"Y","86":"X","53":"Z","51":"Y","48":"X","49":"Z"}},{"vertices":[24,26,25],"edges":[97,98,96],"pauli":{"24":"Z","26":"Y","25":"X"}},{"vertices":[24,25,117,118,32,30,33,34,61,62,29,27],"edges":[96,13,189,17,103,15,105,31,134,32,100,12],"pauli":{"24":"X","25":"Z","117":"Y","118":"X","32":"Z","30":"Y","33":"X","34":"Z","61":"Y","62":"X","29":"Z","27":"Y"}},{"vertices":[25,26,112,113,108,109,82,83,116,114,119,117],"edges":[98,14,185,54,180,55,155,59,187,57,190,13],"pauli":{"25":"Y","26":"X","112":"Z","113":"Y","108":"X","109":"Z","82":"Y","83":"X","116":"Z","114":"Y","119":"X","117":"Z"}},{"vertices":[27,29,28],"edges":[100,101,99],"pauli":{"27":"Z","29":"Y","28":"X"}},{"vertices":[28,29,62,60,63,64,91,92,59,57,54,55],"edges":[101,32,133,30,135,46,164,47,130,27,126,28],"pauli":{"28":"Y","29":"X","62":"Z","60":"Y","63":"X","64":"Z","91":"Y","92":"X","59":"Z","57":"Y","54":"X","55":"Z"}},{"vertices":[30,32,31],"edges":[103,104,102],"pauli":{"30":"Z","32":"Y","31":"X"}},{"vertices":[31,32,118,119,114,115,88,89,122,120,125,124],"edges":[104,17,191,57,186,58,161,62,193,60,197,16],"pauli":{"31":"Y","32":"X","118":"Z","119":"Y","114":"X","115":"Z","88":"Y","89":"X","122":"Z","120":"Y","125":"X","124":"Z"}},{"vertices":[33,35,34],"edges":[106,107,105],"pauli":{"33":"Z","35":"Y","34":"X"}},{"vertices":[34,35,68,66,69,70,97,98,65,63,60,61],"edges":[107,35,139,33,141,49,170,50,136,30,132,31],"pauli":{"34":"Y","35":"X","68":"Z","66":"Y","69":"X","70":"Z","97":"Y","98":"X","65":"Z","63":"Y","60":"X","61":"Z"}},{"vertices":[36,38,37],"edges":[109,110,108],"pauli":{"36":"Z","38":"Y","37":"X"}},{"vertices":[39,40,41],"edges":[111,113,112],"pauli":{"39":"Z","40":"Y","41":"X"}},{"vertices":[40,74,72,75,77,139,140,107,105,102,103,41],"edges":[38,145,36,148,70,212,71,178,51,174,52,113],"pauli":{"40":"X","74":"Z","72":"Y","75":"X","77":"Z","139":"Y","140":"X","107":"Z","105":"Y","102":"X","103":"Z","41":"Y"}},{"vertices":[42,44,43],"edges":[115,116,114],"pauli":{"42":"Z","44":"Y","43":"X"}},{"vertices":[45,47,46],"edges":[118,119,117],"pauli":{"45":"Z","47":"Y","46":"X"}},{"vertices":[46,47,80,78,81,82,109,110,76,75,72,73],"edges":[119,41,151,39,153,55,182,56,147,36,144,37],"pauli":{"46":"Y","47":"X","80":"Z","78":"Y","81":"X","82":"Z","109":"Y","110":"X","76":"Z","75":"Y","72":"X","73":"Z"}},{"vertices":[48,50,49],"edges":[121,122,120],"pauli":{"48":"Z","50":"Y","49":"X"}},{"vertices":[51,53,52],"edges":[124,125,123],"pauli":{"51":"Z","53":"Y","52":"X"}},{"vertices":[52,53,86,84,87,88,115,116,83,81,78,79],"edges":[125,44,157,42,159,58,188,59,154,39,150,40],"pauli":{"52":"Y","53":"X","86":"Z","84":"Y","87":"X","88":"Z","115":"Y","116":"X","83":"Z","81":"Y","78":"X","79":"Z"}},{"vertices":[54,56,55],"edges":[127,128,126],"pauli":{"54":"Z","56":"Y","55":"X"}},{"vertices":[57,59,58],"edges":[130,131,129],"pauli":{"57":"Z","59":"Y","58":"X"}},{"vertices":[58,59,92,90,93,94,121,122,89,87,84,85],"edges":[131,47,163,45,165,61,194,62,160,42,156,43],"pauli":{"58":"Y","59":"X","92":"Z","90":"Y","93":"X","94":"Z","121":"Y","122":"X","89":"Z","87":"Y","84":"X","85":"Z"}},{"vertices":[60,62,61],"edges":[133,134,132],"pauli":{"60":"Z","62":"Y","61":"X"}},{"vertices":[63,65,64],"edges":[136,137,135],"pauli":{"63":"Z","65":"Y","64":"X"}},{"vertices":[64,65,98,96,99,100,127,128,95,93,90,91],"edges":[137,50,169,48,171,64,200,65,166,45,162,46],"pauli":{"64":"Y","65":"X","98":"Z","96":"Y","99":"X","100":"Z","127":"Y","128":"X","95":"Z","93":"Y","90":"X","91":"Z"}},{"vertices":[66,68,67],"edges":[139,140,138],"pauli":{"66":"Z","68":"Y","67":"X"}},{"vertices":[69,71,70],"edges":[142,143,141],"pauli":{"69":"Z","71":"Y","70":"X"}},{"vertices":[70,71,104,102,105,106,133,134,101,99,96,97],"edges":[143,53,175,51,177,67,206,68,172,48,168,49],"pauli":{"70":"Y","71":"X","104":"Z","102":"Y","105":"X","106":"Z","133":"Y","134":"X","101":"Z","99":"Y","96":"X","97":"Z"}},{"vertices":[72,74,73],"edges":[145,146,144],"pauli":{"72":"Z","74":"Y","73":"X"}},{"vertices":[75,76,77],"edges":[147,149,148],"pauli":{"75":"Z","76":"Y","77":"X"}},{"vertices":[78,80,79],"edges":[151,152,150],"pauli":{"78":"Z","80":"Y","79":"X"}},{"vertices":[81,83,82],"edges":[154,155,153],"pauli":{"81":"Z","83":"Y","82":"X"}},{"vertices":[84,86,85],"edges":[157,158,156],"pauli":{"84":"Z","86":"Y","85":"X"}},{"vertices":[87,89,88],"edges":[160,161,159],"pauli":{"87":"Z","89":"Y","88":"X"}},{"vertices":[90,92,91],"edges":[163,164,162],"pauli":{"90":"Z","92":"Y","91":"X"}},{"vertices":[93,95,94],"edges":[166,167,165],"pauli":{"93":"Z","95":"Y","94":"X"}},{"vertices":[96,98,97],"edges":[169,170,168],"pauli":{"96":"Z","98":"Y","97":"X"}},{"vertices":[99,101,100],"edges":[172,173,171],"pauli":{"99":"Z","101":"Y","100":"X"}},{"vertices":[102,104,103],"edges":[175,176,174],"pauli":{"102":"Z","104":"Y","103":"X"}},{"vertices":[105,107,106],"edges":[178,179,177],"pauli":{"105":"Z","107":"Y","106":"X"}},{"vertices":[108,110,109],"edges":[181,182,180],"pauli":{"108":"Z","110":"Y","109":"X"}},{"vertices":[111,113,112],"edges":[184,185,183],"pauli":{"111":"X","113":"Z","112":"Y"}},{"vertices":[114,116,115],"edges":[187,188,186],"pauli":{"114":"Z","116":"Y","115":"X"}},{"vertices":[117,119,118],"edges":[190,191,189],"pauli":{"117":"X","119":"Z","118":"Y"}},{"vertices":[120,122,121],"edges":[193,194,192],"pauli":{"120":"Z","122":"Y","121":"X"}},{"vertices":[123,124,125],"edges":[195,197,196],"pauli":{"123":"Y","124":"X","125":"Z"}},{"vertices":[126,128,127],"edges":[199,200,198],"pauli":{"126":"Z","128":"Y","127":"X"}},{"vertices":[129,131,130],"edges":[202,203,201],"pauli":{"129":"X","131":"Z","130":"Y"}},{"vertices":[132,134,133],"edges":[205,206,204],"pauli":{"132":"Z","134":"Y","133":"X"}},{"vertices":[135,137,136],"edges":[208,209,207],"pauli":{"135":"X","137":"Z","136":"Y"}},{"vertices":[138,140,139],"edges":[211,212,210],"pauli":{"138":"Z","140":"Y","139":"X"}},{"vertices":[141,143,142],"edges":[214,215,213],"pauli":{"141":"X","143":"Z","142":"Y"}}]},"star 6x6":{"name":"star 6x6","period":[10.3923,9.0],"positions":[[0.0,0.28],[0.2425,8.86],[10.1498,8.86],[0.0,0.72],[0.2425,1.14],[10.1498,1.14],[1.7321,0.28],[1.9745,8.86],[1.4896,8.86],[1.7321,0.72],[1.4896,1.14],[1.9745,1.14],[3.4641,0.28],[3.7066,8.86],[3.2216,8.86],[3.4641,0.72],[3.2216,1.14],[3.7066,1.14],[5.1962,0.28],[5.4386,8.86],[4.9537,8.86],[5.1962,0.72],[4.9537,1.14],[5.4386,1.14],[6.9282,0.28],[7.1707,8.86],[6.6857,8.86],[6.9282,0.72],[6.6857,1.14],[7.1707,1.14],[8.6603,0.28],[8.9027,8.86],[8.4178,8.86],[8.6603,0.72],[8.4178,1.14],[8.9027,1.14],[0.866,1.78],[1.1085,1.36],[0.6235,1.36],[0.866,2.22],[1.1085,2.64],[0.6235,2.64],[2.5981,1.78],[2.8406,1.36],[2.3556,1.36],[2.5981,2.22],[2.3556,2.64],[2.8406,2.64],[4.3301,1.78],[4.5726,1.36],[4.0876,1.36],[4.3301,2.22],[4.0876,2.64],[4.5726,2.64],[6.0622,1.78],[6.3047,1.36],[5.8197,1.36],[6.0622,2.22],[5.8197,2.64],[6.3047,2.64],[7.7942,1.78],[8.0367,1.36],[7.5517,1.36],[7.7942,2.22],[7.5517,2.64],[8.0367,2.64],[9.5263,1.78],[9.7688,1.36],[9.2838,1.36],[9.5263,2.22],[9.2838,2.64],[9.7688,2.64],[1.7321,3.28],[1.9745,2.86],[1.4896,2.86],[1.7321,3.72],[1.9745,4.14],[1.4896,4.14],[3.4641,3.28],[3.7066,2.86],[3.2216,2.86],[3.4641,3.72],[3.2216,4.14],[3.7066,4.14],[5.1962,3.28],[5.4386,2.86],[4.9537,2.86],[5.1962,3.72],[4.9537,4.14],[5.4386,4.14],[6.9282,3.28],[7.1707,2.86],[6.6857,2.86],[6.9282,3.72],[6.6857,4.14],[7.1707,4.14],[8.6603,3.28],[8.9027,2.86],[8.4178,2.86],[8.6603,3.72],[8.4178,4.14],[8.9027,4.14],[10.3923,3.28],[0.2425,2.86],[10.1498,2.86],[10.3923,3.72],[10.1498,4.14],[0.2425,4.14],[2.5981,4.78],[2.8406,4.36],[2.3556,4.36],[2.5981,5.22],[2.8406,5.64],[2.3556,5.64],[4.3301,4.78],[4.5726,4.36],[4.0876,4.36],[4.3301,5.22],[4.0876,5.64],[4.5726,5.64],[6.0622,4.78],[6.3047,4.36],[5.8197,4.36],[6.0622,5.22],[5.8197,5.64],[6.3047,5.64],[7.7942,4.78],[8.0367,4.36],[7.5517,4.36],[7.7942,5.22],[7.5517,5.64],[8.0367,5.64],[9.5263,4.78],[9.7688,4.36],[9.2838,4.36],[9.5263,5.22],[9.2838,5.64],[9.7688,5.64],[0.866,4.78],[1.1085,4.36],[0.6235,4.36],[0.866,5.22],[0.6235,5.64],[1.1085,5.64],[3.4641,6.28],[3.7066,5.86],[3.2216,5.86],[3.4641,6.72],[3.7066,7.14],[3.2216,7.14],[5.1962,6.28],[5.4386,5.86],[4.9537,5.86],[5.1962,6.72],[4.9537,7.14],[5.4386,7.14],[6.9282,6.28],[7.1707,5.86],[6.6857,5.86],[6.9282,6.72],[6.6857,7.14],[7.1707,7.14],[8.6603,6.28],[8.9027,5.86],[8.4178,5.86],[8.6603,6.72],[8.4178,7.14],[8.9027,7.14],[0.0,6.28],[0.2425,5.86],[10.1498,5.86],[0.0,6.72],[10.1498,7.14],[0.2425,7.14],[1.7321,6.28],[1.9745,5.86],[1.4896,5.86],[1.7321,6.72],[1.4896,7.14],[1.9745,7.14],[4.3301,7.78],[4.5726,7.36],[4.0876,7.36],[4.0876,8.64],[4.5726,8.64],[4.3301,8.22],[6.0622,7.78],[6.3047,7.36],[5.8197,7.36],[5.8197,8.64],[6.3047,8.64],[6.0622,8.22],[7.7942,7.78],[8.0367,7.36],[7.5517,7.36],[7.5517,8.64],[8.0367,8.64],[7.7942,8.22],[9.5263,7.78],[9.7688,7.36],[9.2838,7.36],[9.7688,8.64],[9.2838,8.64],[9.5263,8.22],[0.866,7.78],[1.1085,7.36],[0.6235,7.36],[0.6235,8.64],[1.1085,8.64],[0.866,8.22],[2.5981,7.78],[2.8406,7.36],[2.3556,7.36],[2.3556,8.64],[2.8406,8.64],[2.5981,8.22]],"edges":[[0,3,"z",0.0,0.44],[1,207,"x",0.3811,-0.22],[2,201,"y",-0.3811,-0.22],[6,9,"z",0.0,0.44],[7,213,"x",0.3811,-0.22],[8,208,"y",-0.3811,-0.22],[12,15,"z",0.0,0.44],[13,183,"x",0.3811,-0.22],[14,214,"y",-0.3811,-0.22],[18,21,"z",0.0,0.44],[19,189,"x",0.3811,-0.22],[20,184,"y",-0.3811,-0.22],[24,27,"z",0.0,0.44],[25,195,"x",0.3811,-0.22],[26,190,"y",-0.3811,-0.22],[30,33,"z",0.0,0.44],[31,202,"x",0.3811,-0.22],[32,196,"y",-0.3811,-0.22],[36,39,"z",0.0,0.44],[37,10,"x",0.3811,-0.22],[38,4,"y",-0.3811,-0.22],[42,45,"z",0.0,0.44],[43,16,"x",0.3811,-0.22],[44,11,"y",-0.3811,-0.22],[48,51,"z",0.0,0.44],[49,22,"x",0.3811,-0.22],[50,17,"y",-0.3811,-0.22],[54,57,"z",0.0,0.44],[55,28,"x",0.3811,-0.22],[56,23,"y",-0.3811,-0.22],[60,63,"z",0.0,0.44],[61,34,"x",0.3811,-0.22],[62,29,"y",-0.3811,-0.22],[66,69,"z",0.0,0.44],[67,5,"x",0.3811,-0.22],[68,35,"y",-0.3811,-0.22],[72,75,"z",0.0,0.44],[73,46,"x",0.3811,-0.22],[74,40,"y",-0.3811,-0.22],[78,81,"z",0.0,0.44],[79,52,"x",0.3811,-0.22],[80,47,"y",-0.3811,-0.22],[84,87,"z",0.0,0.44],[85,58,"x",0.3811,-0.22],[86,53,"y",-0.3811,-0.22],[90,93,"z",0.0,0.44],[91,64,"x",0.3811,-0.22],[92,59,"y",-0.3811,-0.22],[96,99,"z",0.0,0.44],[97,70,"x",0.3811,-0.22],[98,65,"y",-0.3811,-0.22],[102,105,"z",0.0,0.44],[103,41,"x",0.3811,-0.22],[104,71,"y",-0.3811,-0.22],[108,111,"z",0.0,0.44],[109,82,"x",0.3811,-0.22],[110,76,"y",-0.3811,-0.22],[114,117,"z",0.0,0.44],[115,88,"x",0.3811,-0.22],[116,83,"y",-0.3811,-0.22],[120,123,"z",0.0,0.44],[121,94,"x",0.3811,-0.22],[122,89,"y",-0.3811,-0.22],[126,129,"z",0.0,0.44],[127,100,"x",0.3811,-0.22],[128,95,"y",-0.3811,-0.22],[132,135,"z",0.0,0.44],[133,106,"x",0.3811,-0.22],[134,101,"y",-0.3811,-0.22],[138,141,"z",0.0,0.44],[139,77,"x",0.3811,-0.22],[140,107,"y",-0.3811,-0.22],[144,147,"z",0.0,0.44],[145,118,"x",0.3811,-0.22],[146,112,"y",-0.3811,-0.22],[150,153,"z",0.0,0.44],[151,124,"x",0.3811,-0.22],[152,119,"y",-0.3811,-0.22],[156,159,"z",0.0,0.44],[157,130,"x",0.3811,-0.22],[158,125,"y",-0.3811,-0.22],[162,165,"z",0.0,0.44],[163,136,"x",0.3811,-0.22],[164,131,"y",-0.3811,-0.22],[168,171,"z",0.0,0.44],[169,142,"x",0.3811,-0.22],[170,137,"y",-0.3811,-0.22],[174,177,"z",0.0,0.44],[175,113,"x",0.3811,-0.22],[176,143,"y",-0.3811,-0.22],[180,185,"z",0.0,0.44],[181,154,"x",0.3811,-0.22],[182,148,"y",-0.3811,-0.22],[186,191,"z",0.0,0.44],[187,160,"x",0.3811,-0.22],[188,155,"y",-0.3811,-0.22],[192,197,"z",0.0,0.44],[193,166,"x",0.3811,-0.22],[194,161,"y",-0.3811,-0.22],[198,203,"z",0.0,0.44],[199,172,"x",0.3811,-0.22],[200,167,"y",-0.3811,-0.22],[204,209,"z",0.0,0.44],[205,178,"x",0.3811,-0.22],[206,173,"y",-0.3811,-0.22],[210,215,"z",0.0,0.44],[211,149,"x",0.3811,-0.22],[212,179,"y",-0.3811,-0.22],[0,1,"y",0.2425,-0.42],[0,2,"x",-0.2425,-0.42],[1,2,"z",-0.485,0.0],[3,4,"x",0.2425,0.42],[3,5,"y",-0.2425,0.42],[4,5,"z",-0.485,0.0],[6,7,"y",0.2425,-0.42],[6,8,"x",-0.2425,-0.42],[7,8,"z",-0.485,0.0],[9,10,"y",-0.2425,0.42],[9,11,"x",0.2425,0.42],[10,11,"z",0.485,0.0],[12,13,"y",0.2425,-0.42],[12,14,"x",-0.2425,-0.42],[13,14,"z",-0.485,0.0],[15,16,"y",-0.2425,0.42],[15,17,"x",0.2425,0.42],[16,17,"z",0.485,0.0],[18,19,"y",0.2425,-0.42],[18,20,"x",-0.2425,-0.42],[19,20,"z",-0.485,0.0],[21,22,"y",-0.2425,0.42],[21,23,"x",0.2425,0.42],[22,23,"z",0.485,0.0],[24,25,"y",0.2425,-0.42],[24,26,"x",-0.2425,-0.42],[25,26,"z",-0.485,0.0],[27,28,"y",-0.2425,0.42],[27,29,"x",0.2425,0.42],[28,29,"z",0.485,0.0],[30,31,"y",0.2425,-0.42],[30,32,"x",-0.2425,-0.42],[31,32,"z",-0.485,0.0],[33,34,"y",-0.2425,0.42],[33,35,"x",0.2425,0.42],[34,35,"z",0.485,0.0],[36,37,"y",0.2425,-0.42],[36,38,"x",-0.2425,-0.42],[37,38,"z",-0.485,0.0],[39,40,"x",0.2425,0.42],[39,41,"y",-0.2425,0.42],[40,41,"z",-0.485,0.0],[42,43,"y",0.2425,-0.42],[42,44,"x",-0.2425,-0.42],[43,44,"z",-0.485,0.0],[45,46,"y",-0.2425,0.42],[45,47,"x",0.2425,0.42],[46,47,"z",0.485,0.0],[48,49,"y",0.2425,-0.42],[48,50,"x",-0.2425,-0.42],[49,50,"z",-0.485,0.0],[51,52,"y",-0.2425,0.42],[51,53,"x",0.2425,0.42],[52,53,"z",0.485,0.0],[54,55,"y",0.2425,-0.42],[54,56,"x",-0.2425,-0.42],[55,56,"z",-0.485,0.0],[57,58,"y",-0.2425,0.42],[57,59,"x",0.2425,0.42],[58,59,"z",0.485,0.0],[60,61,"y",0.2425,-0.42],[60,62,"x",-0.2425,-0.42],[61,62,"z",-0.485,0.0],[63,64,"y",-0.2425,0.42],[63,65,"x",0.2425,0.42],[64,65,"z",0.485,0.0],[66,67,"y",0.2425,-0.42],[66,68,"x",-0.2425,-0.42],[67,68,"z",-0.485,0.0],[69,70,"y",-0.2425,0.42],[69,71,"x",0.2425,0.42],[70,71,"z",0.485,0.0],[72,73,"y",0.2425,-0.42],[72,74,"x",-0.2425,-0.42],[73,74,"z",-0.485,0.0],[75,76,"x",0.2425,0.42],[75,77,"y",-0.2425,0.42],[76,77,"z",-0.485,0.0],[78,79,"y",0.2425,-0.42],[78,80,"x",-0.2425,-0.42],[79,80,"z",-0.485,0.0],[81,82,"y",-0.2425,0.42],[81,83,"x",0.2425,0.42],[82,83,"z",0.485,0.0],[84,85,"y",0.2425,-0.42],[84,86,"x",-0.2425,-0.42],[85,86,"z",-0.485,0.0],[87,88,"y",-0.2425,0.42],[87,89,"x",0.2425,0.42],[88,89,"z",0.485,0.0],[90,91,"y",0.2425,-0.42],[90,92,"x",-0.2425,-0.42],[91,92,"z",-0.485,0.0],[93,94,"y",-0.2425,0.42],[93,95,"x",0.2425,0.42],[94,95,"z",0.485,0.0],[96,97,"y",0.2425,-0.42],[96,98,"x",-0.2425,-0.42],[97,98,"z",-0.485,0.0],[99,100,"y",-0.2425,0.42],[99,101,"x",0.2425,0.42],[100,101,"z",0.485,0.0],[102,103,"y",0.2425,-0.42],[102,104,"x",-0.2425,-0.42],[103,104,"z",-0.485,0.0],[105,106,"y",-0.2425,0.42],[105,107,"x",0.2425,0.42],[106,107,"z",0.485,0.0],[108,109,"y",0.2425,-0.42],[108,110,"x",-0.2425,-0.42],[109,110,"z",-0.485,0.0],[111,112,"x",0.2425,0.42],[111,113,"y",-0.2425,0.42],[112,113,"z",-0.485,0.0],[114,115,"y",0.2425,-0.42],[114,116,"x",-0.2425,-0.42],[115,116,"z",-0.485,0.0],[117,118,"y",-0.2425,0.42],[117,119,"x",0.2425,0.42],[118,119,"z",0.485,0.0],[120,121,"y",0.2425,-0.42],[120,122,"x",-0.2425,-0.42],[121,122,"z",-0.485,0.0],[123,124,"y",-0.2425,0.42],[123,125,"x",0.2425,0.42],[124,125,"z",0.485,0.0],[126,127,"y",0.2425,-0.42],[126,128,"x",-0.2425,-0.42],[127,128,"z",-0.485,0.0],[129,130,"y",-0.2425,0.42],[129,131,"x",0.2425,0.42],[130,131,"z",0.485,0.0],[132,133,"y",0.2425,-0.42],[132,134,"x",-0.2425,-0.42],[133,134,"z",-0.485,0.0],[135,136,"y",-0.2425,0.42],[135,137,"x",0.2425,0.42],[136,137,"z",0.485,0.0],[138,139,"y",0.2425,-0.42],[138,140,"x",-0.2425,-0.42],[139,140,"z",-0.485,0.0],[141,142,"y",-0.2425,0.42],[141,143,"x",0.2425,0.42],[142,143,"z",0.485,0.0],[144,145,"y",0.2425,-0.42],[144,146,"x",-0.2425,-0.42],[145,146,"z",-0.485,0.0],[147,148,"x",0.2425,0.42],[147,149,"y",-0.2425,0.42],[148,149,"z",-0.485,0.0],[150,151,"y",0.2425,-0.42],[150,152,"x",-0.2425,-0.42],[151,152,"z",-0.485,0.0],[153,154,"y",-0.2425,0.42],[153,155,"x",0.2425,0.42],[154,155,"z",0.485,0.0],[156,157,"y",0.2425,-0.42],[156,158,"x",-0.2425,-0.42],[157,158,"z",-0.485,0.0],[159,160,"y",-0.2425,0.42],[159,161,"x",0.2425,0.42],[160,161,"z",0.485,0.0],[162,163,"y",0.2425,-0.42],[162,164,"x",-0.2425,-0.42],[163,164,"z",-0.485,0.0],[165,166,"y",-0.2425,0.42],[165,167,"x",0.2425,0.42],[166,167,"z",0.485,0.0],[168,169,"y",0.2425,-0.42],[168,170,"x",-0.2425,-0.42],[169,170,"z",-0.485,0.0],[171,172,"y",-0.2425,0.42],[171,173,"x",0.2425,0.42],[172,173,"z",0.485,0.0],[174,175,"y",0.2425,-0.42],[174,176,"x",-0.2425,-0.42],[175,176,"z",-0.485,0.0],[177,178,"y",-0.2425,0.42],[177,179,"x",0.2425,0.42],[178,179,"z",0.485,0.0],[180,181,"y",0.2425,-0.42],[180,182,"x",-0.2425,-0.42],[181,182,"z",-0.485,0.0],[183,184,"z",0.485,0.0],[183,185,"y",0.2425,-0.42],[184,185,"x",-0.2425,-0.42],[186,187,"y",0.2425,-0.42],[186,188,"x",-0.2425,-0.42],[187,188,"z",-0.485,0.0],[189,190,"z",0.485,0.0],[189,191,"y",0.2425,-0.42],[190,191,"x",-0.2425,-0.42],[192,193,"y",0.2425,-0.42],[192,194,"x",-0.2425,-0.42],[193,194,"z",-0.485,0.0],[195,196,"z",0.485,0.0],[195,197,"y",0.2425,-0.42],[196,197,"x",-0.2425,-0.42],[198,199,"y",0.2425,-0.42],[198,200,"x",-0.2425,-0.42],[199,200,"z",-0.485,0.0],[201,202,"z",-0.485,0.0],[201,203,"x",-0.2425,-0.42],[202,203,"y",0.2425,-0.42],[204,205,"y",0.2425,-0.42],[204,206,"x",-0.2425,-0.42],[205,206,"z",-0.485,0.0],[207,208,"z",0.485,0.0],[207,209,"y",0.2425,-0.42],[208,209,"x",-0.2425,-0.42],[210,211,"y",0.2425,-0.42],[210,212,"x",-0.2425,-0.42],[211,212,"z",-0.485,0.0],[213,214,"z",0.485,0.0],[213,215,"y",0.2425,-0.42],[214,215,"x",-0.2425,-0.42]],"faces":[{"vertices":[0,2,1],"edges":[109,110,108],"pauli":{"0":"Z","2":"Y","1":"X"}},{"vertices":[0,1,207,208,8,6,9,10,37,38,4,3],"edges":[108,1,315,5,115,3,117,19,146,20,111,0],"pauli":{"0":"X","1":"Z","207":"Y","208":"X","8":"Z","6":"Y","9":"X","10":"Z","37":"Y","38":"X","4":"Z","3":"Y"}},{"vertices":[0,3,5,67,68,35,33,30,31,202,201,2],"edges":[0,112,34,176,35,142,15,138,16,309,2,109],"pauli":{"0":"Y","3":"X","5":"Z","67":"Y","68":"X","35":"Z","33":"Y","30":"X","31":"Z","202":"Y","201":"X","2":"Z"}},{"vertices":[1,2,201,203,198,199,172,173,206,204,209,207],"edges":[110,2,310,99,306,100,281,104,313,102,316,1],"pauli":{"1":"Y","2":"X","201":"Z","203":"Y","198":"X","199":"Z","172":"Y","173":"X","206":"Z","204":"Y","209":"X","207":"Z"}},{"vertices":[3,4,5],"edges":[111,113,112],"pauli":{"3":"Z","4":"Y","5":"X"}},{"vertices":[4,38,36,39,41,103,104,71,69,66,67,5],"edges":[20,145,18,148,52,212,53,178,33,174,34,113],"pauli":{"4":"X","38":"Z","36":"Y","39":"X","41":"Z","103":"Y","104":"X","71":"Z","69":"Y","66":"X","67":"Z","5":"Y"}},{"vertices":[6,8,7],"edges":[115,116,114],"pauli":{"6":"Z","8":"Y","7":"X"}},{"vertices":[6,7,213,214,14,12,15,16,43,44,11,9],"edges":[114,4,321,8,121,6,123,22,152,23,118,3],"pauli":{"6":"X","7":"Z","213":"Y","214":"X","14":"Z","12":"Y","15":"X","16":"Z","43":"Y","44":"X","11":"Z","9":"Y"}},{"vertices":[7,8,208,209,204,205,178,179,212,210,215,213],"edges":[116,5,317,102,312,103,287,107,319,105,322,4],"pauli":{"7":"Y","8":"X","208":"Z","209":"Y","204":"X","205":"Z","178":"Y","179":"X","212":"Z","210":"Y","215":"X","213":"Z"}},{"vertices":[9,11,10],"edges":[118,119,117],"pauli":{"9":"Z","11":"Y","10":"X"}},{"vertices":[10,11,44,42,45,46,73,74,40,39,36,37],"edges":[119,23,151,21,153,37,182,38,147,18,144,19],"pauli":{"10":"Y","11":"X","44":"Z","42":"Y","45":"X","46":"Z","73":"Y","74":"X","40":"Z","39":"Y","36":"X","37":"Z"}},{"vertices":[12,14,13],"edges":[121,122,120],"pauli":{"12":"Z","14":"Y","13":"X"}},{"vertices":[12,13,183,184,20,18,21,22,49,50,17,15],"edges":[120,7,291,11,127,9,129,25,158,26,124,6],"pauli":{"12":"X","13":"Z","183":"Y","184":"X","20":"Z","18":"Y","21":"X","22":"Z","49":"Y","50":"X","17":"Z","15":"Y"}},{"vertices":[13,14,214,215,210,211,149,148,182,180,185,183],"edges":[122,8,323,105,318,106,257,92,289,90,292,7],"pauli":{"13":"Y","14":"X","214":"Z","215":"Y","210":"X","211":"Z","149":"Y","148":"X","182":"Z","180":"Y","185":"X","183":"Z"}},{"vertices":[15,17,16],"edges":[124,125,123],"pauli":{"15":"Z","17":"Y","16":"X"}},{"vertices":[16,17,50,48,51,52,79,80,47,45,42,43],"edges":[125,26,157,24,159,40,188,41,154,21,150,22],"pauli":{"16":"Y","17":"X","50":"Z","48":"Y","51":"X","52":"Z","79":"Y","80":"X","47":"Z","45":"Y","42":"X","43":"Z"}},{"vertices":[18,20,19],"edges":[127,128,126],"pauli":{"18":"Z","20":"Y","19":"X"}},{"vertices":[18,19,189,190,26,24,27,28,55,56,23,21],"edges":[126,10,297,14,133,12,135,28,164,29,130,9],"pauli":{"18":"X","19":"Z","189":"Y","190":"X","26":"Z","24":"Y","27":"X","28":"Z","55":"Y","56":"X","23":"Z","21":"Y"}},{"vertices":[19,20,184,185,180,181,154,155,188,186,191,189],"edges":[128,11,293,90,288,91,263,95,295,93,298,10],"pauli":{"19":"Y","20":"X","184":"Z","185":"Y","180":"X","181":"Z","154":"Y","155":"X","188":"Z","186":"Y","191":"X","189":"Z"}},{"vertices":[21,23,22],"edges":[130,131,129],"pauli":{"21":"Z","23":"Y","22":"X"}},{"vertices":[22,23,56,54,57,58,85,86,53,51,48,49],"edges":[131,29,163,27,165,43,194,44,160,24,156,25],"pauli":{"22":"Y","23":"X","56":"Z","54":"Y","57":"X","58":"Z","85":"Y","86":"X","53":"Z","51":"Y","48":"X","49":"Z"}},{"vertices":[24,26,25],"edges":[133,134,132],"pauli":{"24":"Z","26":"Y","25":"X"}},{"vertices":[24,25,195,196,32,30,33,34,61,62,29,27],"edges":[132,13,303,17,139,15,141,31,170,32,136,12],"pauli":{"24":"X","25":"Z","195":"Y","196":"X","32":"Z","30":"Y","33":"X","34":"Z","61":"Y","62":"X","29":"Z","27":"Y"}},{"vertices":[25,26,190,191,186,187,160,161,194,192,197,195],"edges":[134,14,299,93,294,94,269,98,301,96,304,13],"pauli":{"25":"Y","26":"X","190":"Z","191":"Y","186":"X","187":"Z","160":"Y","161":"X","194":"Z","192":"Y","197":"X","195":"Z"}},{"vertices":[27,29,28],"edges":[136,137,135],"pauli":{"27":"Z","29":"Y","28":"X"}},{"vertices":[28,29,62,60,63,64,91,92,59,57,54,55],"edges":[137,32,169,30,171,46,200,47,166,27,162,28],"pauli":{"28":"Y","29":"X","62":"Z","60":"Y","63":"X","64":"Z","91":"Y","92":"X","59":"Z","57":"Y","54":"X","55":"Z"}},{"vertices":[30,32,31],"edges":[139,140,138],"pauli":{"30":"Z","32":"Y","31":"X"}},{"vertices":[31,32,196,197,192,193,166,167,200,198,203,202],"edges":[140,17,305,96,300,97,275,101,307,99,311,16],"pauli":{"31":"Y","32":"X","196":"Z","197":"Y","192":"X","193":"Z","166":"Y","167":"X","200":"Z","198":"Y","203":"X","202":"Z"}},{"vertices":[33,35,34],"edges":[142,143,141],"pauli":{"33":"Z","35":"Y","34":"X"}},{"vertices":[34,35,68,66,69,70,97,98,65,63,60,61],"edges":[143,35,175,33,177,49,206,50,172,30,168,31],"pauli":{"34":"Y","35":"X","68":"Z","66":"Y","69":"X","70":"Z","97":"Y","98":"X","65":"Z","63":"Y","60":"X","61":"Z"}},{"vertices":[36,38,37],"edges":[145,146,144],"pauli":{"36":"Z","38":"Y","37":"X"}},{"vertices":[39,40,41],"edges":[147,149,148],"pauli":{"39":"Z","40":"Y","41":"X"}},{"vertices":[40,74,72,75,77,139,140,107,105,102,103,41],"edges":[38,181,36,184,70,248,71,214,51,210,52,149],"pauli":{"40":"X","74":"Z","72":"Y","75":"X","77":"Z","139":"Y","140":"X","107":"Z","105":"Y","102":"X","103":"Z","41":"Y"}},{"vertices":[42,44,43],"edges":[151,152,150],"pauli":{"42":"Z","44":"Y","43":"X"}},{"vertices":[45,47,46],"edges":[154,155,153],"pauli":{"45":"Z","47":"Y","46":"X"}},{"vertices":[46,47,80,78,81,82,109,110,76,75,72,73],"edges":[155,41,187,39,189,55,218,56,183,36,180,37],"pauli":{"46":"Y","47":"X","80":"Z","78":"Y","81":"X","82":"Z","109":"Y","110":"X","76":"Z","75":"Y","72":"X","73":"Z"}},{"vertices":[48,50,49],"edges":[157,158,156],"pauli":{"48":"Z","50":"Y","49":"X"}},{"vertices":[51,53,52],"edges":[160,161,159],"pauli":{"51":"Z","53":"Y","52":"X"}},{"vertices":[52,53,86,84,87,88,115,116,83,81,78,79],"edges":[161,44,193,42,195,58,224,59,190,39,186,40],"pauli":{"52":"Y","53":"X","86":"Z","84":"Y","87":"X","88":"Z","115":"Y","116":"X","83":"Z","81":"Y","78":"X","79":"Z"}},{"vertices":[54,56,55],"edges":[163,164,162],"pauli":{"54":"Z","56":"Y","55":"X"}},{"vertices":[57,59,58],"edges":[166,167,165],"pauli":{"57":"Z","59":"Y","58":"X"}},{"vertices":[58,59,92,90,93,94,121,122,89,87,84,85],"edges":[167,47,199,45,201,61,230,62,196,42,192,43],"pauli":{"58":"Y","59":"X","92":"Z","90":"Y","93":"X","94":"Z","121":"Y","122":"X","89":"Z","87":"Y","84":"X","85":"Z"}},{"vertices":[60,62,61],"edges":[169,170,168],"pauli":{"60":"Z","62":"Y","61":"X"}},{"vertices":[63,65,64],"edges":[172,173,171],"pauli":{"63":"Z","65":"Y","64":"X"}},{"vertices":[64,65,98,96,99,100,127,128,95,93,90,91],"edges":[173,50,205,48,207,64,236,65,202,45,198,46],"pauli":{"64":"Y","65":"X","98":"Z","96":"Y","99":"X","100":"Z","127":"Y","128":"X","95":"Z","93":"Y","90":"X","91":"Z"}},{"vertices":[66,68,67],"edges":[175,176,174],"pauli":{"66":"Z","68":"Y","67":"X"}},{"vertices":[69,71,70],"edges":[178,179,177],"pauli":{"69":"Z","71":"Y","70":"X"}},{"vertices":[70,71,104,102,105,106,133,134,101,99,96,97],"edges":[179,53,211,51,213,67,242,68,208,48,204,49],"pauli":{"70":"Y","71":"X","104":"Z","102":"Y","105":"X","106":"Z","133":"Y","134":"X","101":"Z","99":"Y","96":"X","97":"Z"}},{"vertices":[72,74,73],"edges":[181,182,180],"pauli":{"72":"Z","74":"Y","73":"X"}},{"vertices":[75,76,77],"edges":[183,185,184],"pauli":{"75":"Z","76":"Y","77":"X"}},{"vertices":[76,110,108,111,113,175,176,143,141,138,139,77],"edges":[56,217,54,220,88,284,89,250,69,246,70,185],"pauli":{"76":"X","110":"Z","108":"Y","111":"X","113":"Z","175":"Y","176":"X","143":"Z","141":"Y","138":"X","139":"Z","77":"Y"}},{"vertices":[78,80,79],"edges":[187,188,186],"pauli":{"78":"Z","80":"Y","79":"X"}},{"vertices":[81,83,82],"edges":[190,191,189],"pauli":{"81":"Z","83":"Y","82":"X"}},{"vertices":[82,83,116,114,117,118,145,146,112,111,108,109],"edges":[191,59,223,57,225,73,254,74,219,54,216,55],"pauli":{"82":"Y","83":"X","116":"Z","114":"Y","117":"X","118":"Z","145":"Y","146":"X","112":"Z","111":"Y","108":"X","109":"Z"}},{"vertices":[84,86,85],"edges":[193,194,192],"pauli":{"84":"Z","86":"Y","85":"X"}},{"vertices":[87,89,88],"edges":[196,197,195],"pauli":{"87":"Z","89":"Y","88":"X"}},{"vertices":[88,89,122,120,123,124,151,152,119,117,114,115],"edges":[197,62,229,60,231,76,260,77,226,57,222,58],"pauli":{"88":"Y","89":"X","122":"Z","120":"Y","123":"X","124":"Z","151":"Y","152":"X","119":"Z","117":"Y","114":"X","115":"Z"}},{"vertices":[90,92,91],"edges":[199,200,198],"pauli":{"90":"Z","92":"Y","91":"X"}},{"vertices":[93,95,94],"edges":[202,203,201],"pauli":{"93":"Z","95":"Y","94":"X"}},{"vertices":[94,95,128,126,129,130,157,158,125,123,120,121],"edges":[203,65,235,63,237,79,266,80,232,60,228,61],"pauli":{"94":"Y","95":"X","128":"Z","126":"Y","129":"X","130":"Z","157":"Y","158":"X","125":"Z","123":"Y","120":"X","121":"Z"}},{"vertices":[96,98,97],"edges":[205,206,204],"pauli":{"96":"Z","98":"Y","97":"X"}},{"vertices":[99,101,100],"edges":[208,209,207],"pauli":{"99":"Z","101":"Y","100":"X"}},{"vertices":[100,101,134,132,135,136,163,164,131,129,126,127],"edges":[209,68,241,66,243,82,272,83,238,63,234,64],"pauli":{"100":"Y","101":"X","134":"Z","132":"Y","135":"X","136":"Z","163":"Y","164":"X","131":"Z","129":"Y","126":"X","127":"Z"}},{"vertices":[102,104,103],"edges":[211,212,210],"pauli":{"102":"Z","104":"Y","103":"X"}},{"vertices":[105,107,106],"edges":[214,215,213],"pauli":{"105":"Z","107":"Y","106":"X"}},{"vertices":[106,107,140,138,141,142,169,170,137,135,132,133],"edges":[215,71,247,69,249,85,278,86,244,66,240,67],"pauli":{"106":"Y","107":"X","140":"Z","138":"Y","141":"X","142":"Z","169":"Y","170":"X","137":"Z","135":"Y","132":"X","133":"Z"}},{"vertices":[108,110,109],"edges":[217,218,216],"pauli":{"108":"Z","110":"Y","109":"X"}},{"vertices":[111,112,113],"edges":[219,221,220],"pauli":{"111":"Z","112":"Y","113":"X"}},{"vertices":[112,146,144,147,149,211,212,179,177,174,175,113],"edges":[74,253,72,256,106,320,107,286,87,282,88,221],"pauli":{"112":"X","146":"Z","144":"Y","147":"X","149":"Z","211":"Y","212":"X","179":"Z","177":"Y","174":"X","175":"Z","113":"Y"}},{"vertices":[114,116,115],"edges":[223,224,222],"pauli":{"114":"Z","116":"Y","115":"X"}},{"vertices":[117,119,118],"edges":[226,227,225],"pauli":{"117":"Z","119":"Y","118":"X"}},{"vertices":[118,119,152,150,153,154,181,182,148,147,144,145],"edges":[227,77,259,75,261,91,290,92,255,72,252,73],"pauli":{"118":"Y","119":"X","152":"Z","150":"Y","153":"X","154":"Z","181":"Y","182":"X","148":"Z","147":"Y","144":"X","145":"Z"}},{"vertices":[120,122,121],"edges":[229,230,228],"pauli":{"120":"Z","122":"Y","121":"X"}},{"vertices":[123,125,124],"edges":[232,233,231],"pauli":{"123":"Z","125":"Y","124":"X"}},{"vertices":[124,125,158,156,159,160,187,188,155,153,150,151],"edges":[233,80,265,78,267,94,296,95,262,75,258,76],"pauli":{"124":"Y","125":"X","158":"Z","156":"Y","159":"X","160":"Z","187":"Y","188":"X","155":"Z","153":"Y","150":"X","151":"Z"}},{"vertices":[126,128,127],"edges":[235,236,234],"pauli":{"126":"Z","128":"Y","127":"X"}},{"vertices":[129,131,130],"edges":[238,239,237],"pauli":{"129":"Z","131":"Y","130":"X"}},{"vertices":[130,131,164,162,165,166,193,194,161,159,156,157],"edges":[239,83,271,81,273,97,302,98,268,78,264,79],"pauli":{"130":"Y","131":"X","164":"Z","162":"Y","165":"X","166":"Z","193":"Y","194":"X","161":"Z","159":"Y","156":"X","157":"Z"}},{"vertices":[132,134,133],"edges":[241,242,240],"pauli":{"132":"Z","134":"Y","133":"X"}},{"vertices":[135,137,136],"edges":[244,245,243],"pauli":{"135":"Z","137":"Y","136":"X"}},{"vertices":[136,137,170,168,171,172,199,200,167,165,162,163],"edges":[245,86,277,84,279,100,308,101,274,81,270,82],"pauli":{"136":"Y","137":"X","170":"Z","168":"Y","171":"X","172":"Z","199":"Y","200":"X","167":"Z","165":"Y","162":"X","163":"Z"}},{"vertices":[138,140,139],"edges":[247,248,246],"pauli":{"138":"Z","140":"Y","139":"X"}},{"vertices":[141,143,142],"edges":[250,251,249],"pauli":{"141":"Z","143":"Y","142":"X"}},{"vertices":[142,143,176,174,177,178,205,206,173,171,168,169],"edges":[251,89,283,87,285,103,314,104,280,84,276,85],"pauli":{"142":"Y","143":"X","176":"Z","174":"Y","177":"X","178":"Z","205":"Y","206":"X","173":"Z","171":"Y","168":"X","169":"Z"}},{"vertices":[144,146,145],"edges":[253,254,252],"pauli":{"144":"Z","146":"Y","145":"X"}},{"vertices":[147,148,149],"edges":[255,257,256],"pauli":{"147":"Z","148":"Y","149":"X"}},{"vertices":[150,152,151],"edges":[259,260,258],"pauli":{"150":"Z","152":"Y","151":"X"}},{"vertices":[153,155,154],"edges":[262,263,261],"pauli":{"153":"Z","155":"Y","154":"X"}},{"vertices":[156,158,157],"edges":[265,266,264],"pauli":{"156":"Z","158":"Y","157":"X"}},{"vertices":[159,161,160],"edges":[268,269,267],"pauli":{"159":"Z","161":"Y","160":"X"}},{"vertices":[162,164,163],"edges":[271,272,270],"pauli":{"162":"Z","164":"Y","163":"X"}},{"vertices":[165,167,166],"edges":[274,275,273],"pauli":{"165":"Z","167":"Y","166":"X"}},{"vertices":[168,170,169],"edges":[277,278,276],"pauli":{"168":"Z","170":"Y","169":"X"}},{"vertices":[171,173,172],"edges":[280,281,279],"pauli":{"171":"Z","173":"Y","172":"X"}},{"vertices":[174,176,175],"edges":[283,284,282],"pauli":{"174":"Z","176":"Y","175":"X"}},{"vertices":[177,179,178],"edges":[286,287,285],"pauli":{"177":"Z","179":"Y","178":"X"}},{"vertices":[180,182,181],"edges":[289,290,288],"pauli":{"180":"Z","182":"Y","181":"X"}},{"vertices":[183,185,184],"edges":[292,293,291],"pauli":{"183":"X","185":"Z","184":"Y"}},{"vertices":[186,188,187],"edges":[295,296,294],"pauli":{"186":"Z","188":"Y","187":"X"}},{"vertices":[189,191,190],"edges":[298,299,297],"pauli":{"189":"X","191":"Z","190":"Y"}},{"vertices":[192,194,193],"edges":[301,302,300],"pauli":{"192":"Z","194":"Y","193":"X"}},{"vertices":[195,197,196],"edges":[304,305,303],"pauli":{"195":"X","197":"Z","196":"Y"}},{"vertices":[198,200,199],"edges":[307,308,306],"pauli":{"198":"Z","200":"Y","199":"X"}},{"vertices":[201,202,203],"edges":[309,311,310],"pauli":{"201":"Y","202":"X","203":"Z"}},{"vertices":[204,206,205],"edges":[313,314,312],"pauli":{"204":"Z","206":"Y","205":"X"}},{"vertices":[207,209,208],"edges":[316,317,315],"pauli":{"207":"X","209":"Z","208":"Y"}},{"vertices":[210,212,211],"edges":[319,320,318],"pauli":{"210":"Z","212":"Y","211":"X"}},{"vertices":[213,215,214],"edges":[322,323,321],"pauli":{"213":"X","215":"Z","214":"Y"}}]}};
+const NS = "http://www.w3.org/2000/svg";
+const TOOLS = [
+  { id: "measure", name: "Measure link", key: "1", target: "link",
+    desc: "Between two dimers: makes a new dimer and leaves a Majorana at each far end. Next to a Majorana: moves it. Between two Majoranas: fuses them into a dimer. A -1 outcome adds a fermion." },
+  { id: "apply", name: "Apply link", key: "2", target: "link",
+    desc: "Apply a link operator as a gate. It toggles a fermion on each of the two pairs at its ends, so it moves or removes fermions." },
+  { id: "X", name: "X error", key: "3", target: "qubit", desc: "Apply X to a qubit. Errors are the only way to create e and m anyons on plaquettes." },
+  { id: "Y", name: "Y error", key: "4", target: "qubit", desc: "Apply Y to a qubit." },
+  { id: "Z", name: "Z error", key: "5", target: "qubit", desc: "Apply Z to a qubit." },
+  { id: "release", name: "Split dimer", key: "6", target: "qubit",
+    desc: "Bookkeeping only: nothing happens to the qubits. The dimer's two ends are relabelled as Majoranas so you can move them. Click either one again to relabel them as a dimer." },
+  { id: "hop", name: "Move Majorana, fixing -1", key: "7", target: "qubit",
+    desc: "A shortcut. Click a Majorana to see where it can jump, then click a destination. It measures the link for you and, if the outcome is -1, applies the paper's fix so no fermions are left behind." },
+];
+
+let latName = "star 4x4", lat, code, tool = "measure", selected = null, history = [], shade = false, threads = true;
+const $ = id => document.getElementById(id);
+
+function lattice(name) { return { ...LATTICES[name], name }; }
+function newCode(seed) {
+  lat = lattice(latName);
+  code = new MatchingCode(lat, { seed });
+  code.force = $("forceplus").checked ? 1 : null;
+  history = []; selected = null;
+  render();
+}
+
+// ----------------------------------------------------------------- geometry
+function edgeFrom(e, q) {
+  const E = code.edges[e];
+  return E.u === q ? { to: E.v, d: E.d } : { to: E.u, d: [-E.d[0], -E.d[1]] };
+}
+function unwrapPath(start, path) {
+  const P = lat.positions;
+  let q = start, x = P[q][0], y = P[q][1];
+  const pts = [[x, y]];
+  for (const e of path) { const s = edgeFrom(e, q); x += s.d[0]; y += s.d[1]; q = s.to; pts.push([x, y]); }
+  return pts;
+}
+function faceShape(f) { return unwrapPath(f.vertices[0], f.edges); }
+const OFF1 = [-1, 0, 1], OFF2 = [-2, -1, 0, 1, 2];
+function copies(pts, offs) {
+  const [W, H] = lat.period, out = [];
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  for (const i of offs) for (const j of offs) {
+    const dx = i * W, dy = j * H;
+    if (x1 + dx < -0.3 || x0 + dx > W + 0.3 || y1 + dy < -0.3 || y0 + dy > H + 0.3) continue;
+    out.push(pts.map(([x, y]) => [x + dx, y + dy]));
+  }
+  return out;
+}
+function midpoint(pts) {
+  if (pts.length === 2) return [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+  const seg = []; let tot = 0;
+  for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]); seg.push(l); tot += l; }
+  let half = tot / 2;
+  for (let i = 0; i < seg.length; i++) {
+    if (half <= seg[i]) { const f = half / seg[i]; return [pts[i][0] + f * (pts[i+1][0] - pts[i][0]), pts[i][1] + f * (pts[i+1][1] - pts[i][1])]; }
+    half -= seg[i];
+  }
+  return pts[pts.length - 1];
+}
+const pstr = pts => pts.map(([x, y]) => `${x.toFixed(3)},${(lat.period[1] - y).toFixed(3)}`).join(" ");
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+
+// ----------------------------------------------------------------- render
+function render() {
+  const svg = $("lat"); svg.innerHTML = "";
+  const [W, H] = lat.period;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const defs = el("defs", {}, svg);
+  const cp = el("clipPath", { id: "dom" }, defs);
+  el("rect", { x: 0, y: 0, width: W, height: H }, cp);
+  const root = el("g", { "clip-path": "url(#dom)" }, svg);
+  const gF = el("g", {}, root), gL = el("g", {}, root), gS = el("g", {}, root),
+        gV = el("g", {}, root), gH = el("g", {}, root), gT = el("g", {}, root);
+
+  const pv = code.plaqValues(), { col, ok } = code.colouring();
+  let ne = 0, nm = 0;
+  lat.faces.forEach((f, k) => {
+    const neg = pv[k] === -1;
+    if (neg) (col[k] === 0 ? ne++ : nm++);
+    const fill = neg ? (col[k] === 0 ? "var(--e)" : "var(--m)") : (shade ? (col[k] === 0 ? "var(--shade0)" : "var(--shade1)") : "none");
+    if (fill === "none") return;
+    for (const pts of copies(faceShape(f), OFF1))
+      el("polygon", { points: pstr(pts), fill, "fill-opacity": neg ? 0.55 : 1 }, gF);
+  });
+
+  code.edges.forEach((E, e) => {
+    for (const pts of copies([lat.positions[E.u], [lat.positions[E.u][0] + E.d[0], lat.positions[E.u][1] + E.d[1]]], OFF1))
+      el("polyline", { points: pstr(pts), stroke: `var(--${E.label})`, "stroke-width": 0.05, "stroke-linecap": "round", fill: "none" }, gL);
+  });
+
+  let nf = 0;
+  const majPairs = [], badges = [];
+  for (const [id, P] of code.pairs) {
+    const v = code.pairValue(id);
+    const pts = unwrapPath(P.a, P.path);
+    if (v === -1) nf++;
+    if (code.isDimer(P)) {
+      for (const c of copies(pts, OFF1))
+        el("polyline", { points: pstr(c), stroke: "var(--string)", "stroke-width": 0.17, "stroke-opacity": 0.6, "stroke-linecap": "round", fill: "none" }, gS);
+    } else {
+      majPairs.push([id, P, v]);
+      if (threads)
+        for (const c of copies(pts, OFF2))
+          el("polyline", { points: pstr(c), stroke: "var(--maj)", "stroke-width": 0.05, "stroke-dasharray": "0.1 0.08", "stroke-opacity": 0.8, fill: "none" }, gS);
+    }
+    if (v === -1 && code.isDimer(P)) badges.push(midpoint(pts));
+  }
+
+  const majSet = new Set(code.majoranas());
+  lat.positions.forEach((p, q) => {
+    for (const [c] of copies([p], OFF1)) {
+      if (majSet.has(q)) {
+        el("circle", { cx: c[0], cy: H - c[1], r: 0.12, fill: "var(--maj)", stroke: "var(--field)", "stroke-width": 0.04 }, gV);
+      } else {
+        el("circle", { cx: c[0], cy: H - c[1], r: 0.045, fill: "var(--vertex)" }, gV);
+      }
+    }
+  });
+  for (const m of badges)
+    for (const [c] of copies([m], OFF1)) {
+      el("circle", { cx: c[0], cy: H - c[1], r: 0.15, fill: "var(--fermion)", stroke: "var(--field)", "stroke-width": 0.03 }, gV);
+      const tx = el("text", { x: c[0], y: H - c[1] + 0.005, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 0.22, "font-weight": 600, fill: "#2a1d05" }, gV);
+      tx.textContent = "\u03c8";
+    }
+
+  // hop highlights
+  if (tool === "hop" && selected != null) {
+    for (const [c] of copies([lat.positions[selected]], OFF1))
+      el("circle", { cx: c[0], cy: H - c[1], r: 0.2, fill: "none", stroke: "var(--hl)", "stroke-width": 0.04 }, gH);
+    for (const o of code.hopOptions(selected))
+      for (const [c] of copies([lat.positions[o.to]], OFF1))
+        el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--maj)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
+  }
+
+  // hit targets
+  const T = TOOLS.find(t => t.id === tool);
+  if (T.target === "link") {
+    code.edges.forEach((E, e) => {
+      for (const pts of copies([lat.positions[E.u], [lat.positions[E.u][0] + E.d[0], lat.positions[E.u][1] + E.d[1]]], OFF1)) {
+        const h = el("polyline", { points: pstr(pts), stroke: "transparent", "stroke-width": 0.22, fill: "none", class: "hit" }, gT);
+        h.addEventListener("click", () => onLink(e));
+        h.addEventListener("mouseenter", () => h.setAttribute("stroke", "rgba(127,127,127,0.25)"));
+        h.addEventListener("mouseleave", () => h.setAttribute("stroke", "transparent"));
+      }
+    });
+  } else {
+    lat.positions.forEach((p, q) => {
+      for (const [c] of copies([p], OFF1)) {
+        const h = el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "transparent", class: "hit" }, gT);
+        h.addEventListener("click", () => onQubit(q));
+        h.addEventListener("mouseenter", () => h.setAttribute("fill", "rgba(127,127,127,0.25)"));
+        h.addEventListener("mouseleave", () => h.setAttribute("fill", "transparent"));
+      }
+    });
+  }
+
+  $("nf").textContent = nf; $("ne").textContent = ne; $("nm").textContent = nm; $("nmaj").textContent = majSet.size;
+  $("colwarn").hidden = ok;
+  $("pairsec").hidden = majPairs.length === 0;
+  const shown = majPairs.slice(0, 10);
+  $("pairs").innerHTML = shown.map(([id, P, v]) =>
+    `<li><span>${P.a} and ${P.b}</span><span class="${v === 1 ? "pos" : v === -1 ? "neg" : "und"}">${v === 1 ? "no fermion" : v === -1 ? "fermion" : "undetermined"}</span></li>`).join("") +
+    (majPairs.length > shown.length ? `<li><span>and ${majPairs.length - shown.length} more pairs</span><span></span></li>` : "");
+  $("log").innerHTML = history.slice().reverse().map(h => `<li>${h.text}</li>`).join("");
+  $("undo").disabled = history.length === 0;
+}
+
+// ----------------------------------------------------------------- actions
+const sign = m => m === 1 ? "+1" : "-1";
+function commit(text) { history.push({ logLen: code.log.length, text }); render(); }
+function onLink(e) {
+  const E = code.edges[e];
+  if (tool === "measure") { const m = code.measureLink(e); commit(`Measured ${E.label} link ${E.u}-${E.v}: ${sign(m)}`); }
+  else { code.applyLink(e); commit(`Applied ${E.label} link ${E.u}-${E.v}`); }
+}
+function onQubit(q) {
+  if (["X", "Y", "Z"].includes(tool)) { code.applyPauli(q, tool); commit(`Applied ${tool} to qubit ${q}`); return; }
+  const P = code.pairs.get(code.owner[q]);
+  if (tool === "release") {
+    if (P.path.length !== 1) { setHint("Only dimers and split dimers can be split or joined. Measure a link to fuse other Majoranas."); return; }
+    code.release(q);
+    commit(P.kind === "majorana" ? `Split dimer ${P.a}-${P.b} into Majoranas` : `Joined Majoranas ${P.a}-${P.b} into a dimer`);
+    return;
+  }
+  if (tool === "hop") {
+    if (selected != null) {
+      const o = code.hopOptions(selected).find(o => o.to === q);
+      if (o) {
+        const from = selected, r = code.hop(selected, o.edge);
+        selected = r.to;
+        commit(`Moved Majorana ${from} to ${r.to}: ${sign(r.outcome)}${r.outcome === -1 ? ", fermions removed" : ""}`);
+        return;
+      }
+    }
+    const isMaj = !code.isDimer(P);
+    selected = isMaj ? q : null;
+    setHint(isMaj ? "Click a ringed destination." : "That qubit is in a dimer. Pick one of the magenta Majoranas.");
+    render();
+  }
+}
+function setHint(t) { $("hint").textContent = t; }
+
+// ----------------------------------------------------------------- controls
+function buildTools() {
+  $("tools").innerHTML = "";
+  for (const t of TOOLS) {
+    const b = document.createElement("button");
+    b.innerHTML = `${t.name}<kbd>${t.key}</kbd>`;
+    b.setAttribute("aria-pressed", t.id === tool);
+    b.addEventListener("click", () => setTool(t.id));
+    $("tools").appendChild(b);
+  }
+  const T = TOOLS.find(t => t.id === tool);
+  $("tooldesc").textContent = T.desc;
+  setHint(T.target === "link" ? "Click a link. The board wraps around at the edges." : "Click a qubit. The board wraps around at the edges.");
+}
+function setTool(id) { tool = id; selected = null; buildTools(); render(); }
+
+for (const k of Object.keys(LATTICES)) {
+  const o = document.createElement("option"); o.value = k; o.textContent = k.replace("star ", "Star lattice, ") + " cells";
+  $("size").appendChild(o);
+}
+$("size").value = latName;
+$("size").addEventListener("change", e => { latName = e.target.value; newCode(randSeed()); });
+document.querySelectorAll("[data-round]").forEach(b => b.addEventListener("click", () => {
+  const L = b.dataset.round, out = code.measureLabel(L);
+  commit(`Measured all ${L} links: ${out.filter(m => m === -1).length} of ${out.length} gave -1`);
+}));
+$("forceplus").addEventListener("change", e => { code.force = e.target.checked ? 1 : null; });
+$("shade").addEventListener("change", e => { shade = e.target.checked; render(); });
+$("threads").addEventListener("change", e => { threads = e.target.checked; render(); });
+$("reset").addEventListener("click", () => newCode(randSeed()));
+$("undo").addEventListener("click", () => {
+  history.pop();
+  const upTo = history.length ? history[history.length - 1].logLen : 0;
+  const rec = code.record(), force = code.force;
+  code = MatchingCode.replay(lat, rec, upTo);
+  code.force = force; selected = null; render();
+});
+$("copy").addEventListener("click", async () => {
+  const txt = JSON.stringify(code.record());
+  try { await navigator.clipboard.writeText(txt); $("copy").textContent = "Copied"; setTimeout(() => $("copy").textContent = "Copy log", 1500); }
+  catch { $("logtext").hidden = false; $("logtext").value = txt; $("logtext").select(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+  const t = TOOLS.find(t => t.key === e.key);
+  if (t) setTool(t.id);
+  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); $("undo").click(); }
+});
+function randSeed() { return Math.floor(Math.random() * 1e9) + 1; }
+
+buildTools();
+newCode(randSeed());
+</script>
+</body>
+</html>
