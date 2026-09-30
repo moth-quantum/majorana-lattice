@@ -204,14 +204,12 @@ class MatchingCode {
     return { to: k, outcome: m };
   }
 
-  // Neighbouring pairs a fermion on q's pair can step to: applying the link between them
-  // toggles both, so it only moves the fermion if the target pair definitely has none.
+  // Links leaving the pair that q belongs to; applying one toggles both pairs it joins.
   fermionMoves(q) {
     const id = this.owner[q], P = this.pairs.get(id), out = [];
-    if (this.pairValue(id) !== -1) return out;
     for (const end of [P.a, P.b]) for (const e of this.incident[end]) {
       const j = this.edges[e].u === end ? this.edges[e].v : this.edges[e].u;
-      if (this.owner[j] !== id && this.pairValue(this.owner[j]) === 1) out.push({ edge: e, to: j, pair: this.owner[j] });
+      if (this.owner[j] !== id) out.push({ edge: e, to: j, pair: this.owner[j] });
     }
     return out;
   }

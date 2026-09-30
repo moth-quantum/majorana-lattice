@@ -368,14 +368,12 @@ class MatchingCode {
     return { to: k, outcome: m };
   }
 
-  // Neighbouring pairs a fermion on q's pair can step to: applying the link between them
-  // toggles both, so it only moves the fermion if the target pair definitely has none.
+  // Links leaving the pair that q belongs to; applying one toggles both pairs it joins.
   fermionMoves(q) {
     const id = this.owner[q], P = this.pairs.get(id), out = [];
-    if (this.pairValue(id) !== -1) return out;
     for (const end of [P.a, P.b]) for (const e of this.incident[end]) {
       const j = this.edges[e].u === end ? this.edges[e].v : this.edges[e].u;
-      if (this.owner[j] !== id && this.pairValue(this.owner[j]) === 1) out.push({ edge: e, to: j, pair: this.owner[j] });
+      if (this.owner[j] !== id) out.push({ edge: e, to: j, pair: this.owner[j] });
     }
     return out;
   }
@@ -454,7 +452,7 @@ const TOOLS = [
   { id: "hopraw", name: "Move Majorana, raw", key: "9", target: "qubit",
     desc: "Like the hop shortcut, but with no fix. Click a Majorana, then a destination. It measures the link and leaves whatever the outcome gives: on -1, fermions stay on the new pairs." },
   { id: "fermion", name: "Move fermion", key: "8", target: "qubit",
-    desc: "A shortcut. Click a fermion (gold ψ, or a Majorana pair reading fermion) to see the neighbouring pairs it can step to, then click one. It applies the link between them, which moves the fermion without measuring anything." },
+    desc: "Click a qubit to see the neighbouring pairs, then click one. It applies the link between the two pairs, toggling a fermion on each, so a fermion on one side moves across. Nothing is measured." },
 ];
 
 let latName = "star 4x4", lat, code, tool = "measure", selected = null, history = [], shade = false, threads = true;
@@ -673,9 +671,8 @@ function onQubit(q) {
         return;
       }
     }
-    const has = code.pairValue(code.owner[q]) === -1;
-    selected = has ? q : null;
-    setHint(has ? "Click a ringed destination." : "No fermion on that pair. Pick a gold ψ, or a Majorana pair reading fermion.");
+    selected = q;
+    setHint("Click a ringed destination.");
     render();
   }
 }
