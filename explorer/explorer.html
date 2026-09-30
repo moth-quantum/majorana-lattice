@@ -368,6 +368,18 @@ class MatchingCode {
     return { to: k, outcome: m };
   }
 
+  // Neighbouring pairs a fermion on q's pair can step to: applying the link between them
+  // toggles both, so it only moves the fermion if the target pair definitely has none.
+  fermionMoves(q) {
+    const id = this.owner[q], P = this.pairs.get(id), out = [];
+    if (this.pairValue(id) !== -1) return out;
+    for (const end of [P.a, P.b]) for (const e of this.incident[end]) {
+      const j = this.edges[e].u === end ? this.edges[e].v : this.edges[e].u;
+      if (this.owner[j] !== id && this.pairValue(this.owner[j]) === 1) out.push({ edge: e, to: j, pair: this.owner[j] });
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------- reading
   isDimer(P) { return P.kind === "string" && P.path.length === 1; }
   majoranas() {
@@ -439,6 +451,10 @@ const TOOLS = [
     desc: "Bookkeeping only: nothing happens to the qubits. The dimer's two ends are relabelled as Majoranas so you can move them. Click either one again to relabel them as a dimer." },
   { id: "hop", name: "Move Majorana, fixing -1", key: "7", target: "qubit",
     desc: "A shortcut. Click a Majorana to see where it can jump, then click a destination. It measures the link for you and, if the outcome is -1, applies the paper's fix so no fermions are left behind." },
+  { id: "hopraw", name: "Move Majorana, raw", key: "9", target: "qubit",
+    desc: "Like the hop shortcut, but with no fix. Click a Majorana, then a destination. It measures the link and leaves whatever the outcome gives: on -1, fermions stay on the new pairs." },
+  { id: "fermion", name: "Move fermion", key: "8", target: "qubit",
+    desc: "A shortcut. Click a fermion (gold ψ, or a Majorana pair reading fermion) to see the neighbouring pairs it can step to, then click one. It applies the link between them, which moves the fermion without measuring anything." },
 ];
 
 let latName = "star 4x4", lat, code, tool = "measure", selected = null, history = [], shade = false, threads = true;
@@ -561,7 +577,7 @@ function render() {
     }
 
   // hop highlights
-  if (tool === "hop" && selected != null) {
+  if ((tool === "hop" || tool === "hopraw") && selected != null) {
     for (const [c] of copies([lat.positions[selected]], OFF1))
       el("circle", { cx: c[0], cy: H - c[1], r: 0.2, fill: "none", stroke: "var(--hl)", "stroke-width": 0.04 }, gH);
     for (const o of code.hopOptions(selected))
@@ -569,8 +585,19 @@ function render() {
         el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--maj)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
   }
 
+  // fermion-move highlights
+  if (tool === "fermion" && selected != null) {
+    const SP = code.pairs.get(code.owner[selected]);
+    for (const end of [SP.a, SP.b])
+      for (const [c] of copies([lat.positions[end]], OFF1))
+        el("circle", { cx: c[0], cy: H - c[1], r: 0.2, fill: "none", stroke: "var(--hl)", "stroke-width": 0.04 }, gH);
+    for (const o of code.fermionMoves(selected))
+      for (const [c] of copies([lat.positions[o.to]], OFF1))
+        el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--fermion)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
+  }
+
   // hit targets
-  const T = TOOLS.find(t => t.id === tool);
+  const T =TOOLS.find(t => t.id === tool);
   if (T.target === "link") {
     code.edges.forEach((E, e) => {
       for (const pts of copies([lat.positions[E.u], [lat.positions[E.u][0] + E.d[0], lat.positions[E.u][1] + E.d[1]]], OFF1)) {
@@ -619,19 +646,36 @@ function onQubit(q) {
     commit(P.kind === "majorana" ? `Split dimer ${P.a}-${P.b} into Majoranas` : `Joined Majoranas ${P.a}-${P.b} into a dimer`);
     return;
   }
-  if (tool === "hop") {
+  if (tool === "hop" || tool === "hopraw") {
+    const fix = tool === "hop";
     if (selected != null) {
       const o = code.hopOptions(selected).find(o => o.to === q);
       if (o) {
-        const from = selected, r = code.hop(selected, o.edge);
+        const from = selected, r = code.hop(selected, o.edge, fix);
         selected = r.to;
-        commit(`Moved Majorana ${from} to ${r.to}: ${sign(r.outcome)}${r.outcome === -1 ? ", fermions removed" : ""}`);
+        commit(`Moved Majorana ${from} to ${r.to}: ${sign(r.outcome)}${r.outcome === -1 ? (fix ? ", fermions removed" : ", fermions left") : ""}`);
         return;
       }
     }
     const isMaj = !code.isDimer(P);
     selected = isMaj ? q : null;
     setHint(isMaj ? "Click a ringed destination." : "That qubit is in a dimer. Pick one of the magenta Majoranas.");
+    render();
+  }
+  if (tool === "fermion") {
+    if (selected != null) {
+      const o = code.fermionMoves(selected).find(o => o.pair === code.owner[q]);
+      if (o) {
+        const from = code.pairs.get(code.owner[selected]), E = code.edges[o.edge];
+        code.applyLink(o.edge);
+        selected = o.to;
+        commit(`Moved fermion from ${from.a}-${from.b} to ${o.to} across ${E.label} link ${E.u}-${E.v}`);
+        return;
+      }
+    }
+    const has = code.pairValue(code.owner[q]) === -1;
+    selected = has ? q : null;
+    setHint(has ? "Click a ringed destination." : "No fermion on that pair. Pick a gold ψ, or a Majorana pair reading fermion.");
     render();
   }
 }
