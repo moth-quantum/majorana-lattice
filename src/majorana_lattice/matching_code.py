@@ -24,16 +24,24 @@ fixed by history so that vacuum always reads +1.
 
 Actions (all JSON-friendly, replayable from the log):
   measure_link(e)          measure the link operator; rewires the pairing
+                           (outcome=+1/-1 postselects a random outcome)
   apply_link(e)            apply the link operator as a unitary
   apply_pauli(q, P)        apply X, Y or Z to one qubit
   release(q)               split a dimer into two Majoranas, or join them back
                            (bookkeeping only: no operation on the qubits)
   measure_label(L)         measure every link with label L (a Floquet round)
-  hop(q, e)                move the Majorana at q across link e, fixing a -1
-  move_majorana(a, b)      route a Majorana from a to b by hops
+  move_majorana(q, e, fix) move the Majorana at q across link e, fixing a -1
+                           with probability fix (default: the fix_rate field)
+  move_fermion(q, e)       move the fermion on q's pair across link e
+  move_anyon(f, e)         move the e or m anyon on plaquette f across link e
+  route_majorana(a, b)     route a Majorana from a to b by moves
+
+Each particle has a matching list of the moves on offer: majorana_moves(q),
+fermion_moves(q) and anyon_moves(f), all as [(link, destination)].
 """
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 
 import stim
@@ -69,7 +77,7 @@ class MatchingCode:
     lat: Lattice
     background: str = "z"
     seed: int | None = None
-    force: int | None = None   # force random outcomes to +1 or -1 (postselect)
+    fix_rate: float = 1.0      # default chance that a Majorana move fixes a -1 outcome
     plaquette_outcomes: list[int] | None = None  # replay: initial raw plaquette results
     sim: stim.TableauSimulator = field(init=False)
     pairs: dict[int, Pair] = field(init=False)
@@ -79,6 +87,7 @@ class MatchingCode:
 
     def __post_init__(self):
         self.sim = stim.TableauSimulator(seed=self.seed)
+        self._fix_rng = random.Random(self.seed)   # separate from Stim's, so fixing never changes outcomes
         self.pairs, self.owner, self._next = {}, [-1] * self.lat.n, 0
         self.log = []
         # |0...0> is already +1 for every ZZ link. For another background
@@ -131,19 +140,22 @@ class MatchingCode:
     def _remove(self, pid: int) -> Pair:
         return self.pairs.pop(pid)
 
-    def _measure(self, op: stim.PauliString) -> int:
-        """Measure a Pauli observable, honouring `force` when the outcome is random."""
+    def _measure(self, op: stim.PauliString, outcome: int | None = None) -> int:
+        """Measure a Pauli observable. If the outcome is random and `outcome` is
+        given, postselect on it; a deterministic outcome is never changed."""
         exp = self.sim.peek_observable_expectation(op)
-        if exp != 0 or self.force is None:
+        if exp != 0 or outcome is None:
             return -1 if self.sim.measure_observable(op) else 1
-        self.sim.postselect_observable(op, desired_value=(self.force == -1))
-        return self.force
+        self.sim.postselect_observable(op, desired_value=(outcome == -1))
+        return outcome
 
     # ---------------------------------------------------------------- actions
-    def measure_link(self, e: int) -> int:
+    def measure_link(self, e: int, outcome: int | None = None) -> int:
         """Measure link e = (i, j). The pairs holding i and j are rewired:
         (i, a) and (j, b) become the dimer (i, j) and the pair (a, b), whose
-        path runs a -> i -> j -> b. Returns the outcome (+1 or -1)."""
+        path runs a -> i -> j -> b. Returns the outcome (+1 or -1). Passing
+        `outcome` postselects a random outcome on that value (replay uses this);
+        a deterministic outcome is never changed."""
         E = self.lat.edges[e]
         i, j = E.u, E.v
         K = link_pauli(self.lat, e)
@@ -151,7 +163,7 @@ class MatchingCode:
         if pi == pj:
             # i and j already paired: the link commutes with everything.
             old = self._remove(pi)
-            m = self._measure(K)
+            m = self._measure(K, outcome)
             self._add(Pair(i, j, [e], K, "string"))
             self._record("measure_link", edge=e, outcome=m)
             return m
@@ -159,7 +171,7 @@ class MatchingCode:
         a, b = A.other(i), B.other(j)
         new_op = A.op * B.op * K          # commutes with K; real sign
         assert new_op.sign in (1, -1)
-        m = self._measure(K)
+        m = self._measure(K, outcome)
         kind = "string" if (A.kind == "string" and B.kind == "string") else "majorana"
         path = A.path_from(a) + [e] + B.path_from(j)
         self._add(Pair(i, j, [e], K, "string"))
@@ -200,11 +212,9 @@ class MatchingCode:
         for step in record["log"]:
             a = step["action"]
             if a == "measure_link":
-                c.force = step["outcome"]
-                m = c.measure_link(step["edge"])
+                m = c.measure_link(step["edge"], outcome=step["outcome"])
                 if m != step["outcome"]:
                     raise AssertionError(f"outcome mismatch at {step}")
-                c.force = None
             elif a == "apply_link":
                 c.apply_link(step["edge"])
             elif a == "apply_pauli":
@@ -223,7 +233,7 @@ class MatchingCode:
         pair with a definite parity; ends of a released pair are too."""
         return sorted(q for p in self.pairs.values() if not self.is_dimer(p) for q in (p.a, p.b))
 
-    def hop_options(self, q: int) -> list[tuple[int, int]]:
+    def majorana_moves(self, q: int) -> list[tuple[int, int]]:
         """Moves for the Majorana at q: [(link to measure, destination)]."""
         out = []
         for e in self.lat.incident[q]:
@@ -233,15 +243,20 @@ class MatchingCode:
                 out.append((e, Pj.other(j)))
         return out
 
-    def hop(self, q: int, e: int, correct: bool = True) -> int:
-        """Move the Majorana at q across link e. On a -1 outcome, apply the
-        old dimer's link operator to remove the fermion (the paper's fix)."""
-        j = self.lat.edges[e].other(q)
-        Pj = self.pairs[self.owner[j]]
-        k = Pj.other(j)
-        old_edge = Pj.path_from(j)
+    def move_majorana(self, q: int, e: int, fix: float | None = None) -> int:
+        """Move the Majorana at q across link e; returns where it lands. On a
+        -1 outcome, apply the old dimer's link operator to remove the fermion
+        (the paper's fix) with probability `fix`, or `self.fix_rate` if not
+        given (1 always fixes, 0 never does; True and False work too). Raises
+        ValueError unless (e, destination) is in majorana_moves(q)."""
+        fix = self.fix_rate if fix is None else fix
+        k = next((k for ee, k in self.majorana_moves(q) if ee == e), None)
+        if k is None:
+            raise ValueError(f"the Majorana at {q} cannot move across link {e}")
+        Pj = self.pairs[self.owner[self.lat.edges[e].other(q)]]
+        old_edge = Pj.path_from(self.lat.edges[e].other(q))
         m = self.measure_link(e)
-        if m == -1 and correct:
+        if m == -1 and (fix >= 1 or (fix > 0 and self._fix_rng.random() < fix)):
             # the old pair j..k's operator anticommutes with both new pairs;
             # applying its links (= the operator up to a phase) removes both fermions
             for f in old_edge:
@@ -249,12 +264,12 @@ class MatchingCode:
         return k
 
     def _plan(self, src: int, dst: int, avoid) -> list[tuple[int, int]] | None:
-        """Shortest hop route on the current pairing: [(from, link)].
+        """Shortest route of moves on the current pairing: [(from, link)].
 
-        Each hop rewires the vertex it leaves and the vertex it hops across,
+        Each move rewires the vertex it leaves and the vertex it moves across,
         so a valid route must never reuse a vertex, as a stop or as a vertex
-        hopped across. Dimers away from the route stay as they are now, so
-        the current hop options are valid along such a route."""
+        moved across. Dimers away from the route stay as they are now, so
+        the current moves are valid along such a route."""
         from collections import deque
         # breadth-first over positions; each route carries its own set of
         # rewired vertices so it can check it never crosses its own wake
@@ -265,7 +280,7 @@ class MatchingCode:
             steps, used = best[q]
             if q == dst:
                 return list(steps)
-            for e, k in self.hop_options(q):
+            for e, k in self.majorana_moves(q):
                 j = self.lat.edges[e].other(q)
                 if j in used or k in used or k in avoid or j in avoid or k in best:
                     continue
@@ -273,9 +288,9 @@ class MatchingCode:
                 dq.append(k)
         return None
 
-    def move_majorana(self, src: int, dst: int, avoid: set[int] = frozenset(), correct=True) -> list[int]:
-        """Walk the Majorana at src to dst by hops, avoiding given vertices.
-        Plans a route that never reuses a vertex, since every hop rewires the
+    def route_majorana(self, src: int, dst: int, avoid: set[int] = frozenset(), fix: float | None = None) -> list[int]:
+        """Walk the Majorana at src to dst by moves, avoiding given vertices.
+        Plans a route that never reuses a vertex, since every move rewires the
         dimers it passes. Returns the vertices visited."""
         if self.is_dimer(self.pairs[self.owner[src]]):
             raise ValueError(f"vertex {src} is not a Majorana")
@@ -285,9 +300,59 @@ class MatchingCode:
         route = [src]
         for q0, e in plan:
             assert q0 == route[-1]
-            route.append(self.hop(q0, e, correct))
+            route.append(self.move_majorana(q0, e, fix))
         assert route[-1] == dst
         return route
+
+    # ----------------------------------------------------------- fermion helpers
+    def fermion_moves(self, q: int) -> list[tuple[int, int]]:
+        """Moves for the fermion on the pair holding q: [(link, vertex reached)].
+
+        Applying a link operator toggles a fermion on each of the two pairs at
+        its ends, so a fermion on one side moves across. Every link leaving
+        the pair (from either end) to a different pair is listed."""
+        P = self.pairs[self.owner[q]]
+        out = []
+        for end in (P.a, P.b):
+            for e in self.lat.incident[end]:
+                j = self.lat.edges[e].other(end)
+                if self.owner[j] != self.owner[q]:
+                    out.append((e, j))
+        return out
+
+    def move_fermion(self, q: int, e: int) -> int:
+        """Move the fermion on q's pair across link e; returns the vertex reached.
+        Raises ValueError unless (e, vertex) is in fermion_moves(q)."""
+        j = next((j for ee, j in self.fermion_moves(q) if ee == e), None)
+        if j is None:
+            raise ValueError(f"the pair holding {q} has no move across link {e}")
+        self.apply_link(e)
+        return j
+
+    # ------------------------------------------------------------ anyon helpers
+    def anyon_moves(self, f: int) -> list[tuple[int, int]]:
+        """Moves for the anyon on plaquette f: [(link to cross, destination face)].
+
+        Applying a link's own Pauli to one endpoint flips exactly the two
+        plaquettes either side of that link, so the anyon moves across it. Only
+        moves that keep the anyon's type (both faces the same colour) onto a
+        plaquette with no anyon are listed, so the number of e and of m anyons
+        never changes and no fermion is made. Empty plaquettes have no moves."""
+        v = self.values()["plaquettes"]
+        if v[f] != -1:
+            return []
+        col, _ = self.colouring()
+        return [(e, g) for g, e in self.lat.face_neighbours()[f] if col[g] == col[f] and v[g] == 1]
+
+    def move_anyon(self, f: int, e: int) -> int:
+        """Move the anyon on plaquette f across link e; returns the new face.
+        Raises ValueError unless (e, face) is in anyon_moves(f)."""
+        dest = next((g for ee, g in self.anyon_moves(f) if ee == e), None)
+        if dest is None:
+            raise ValueError(f"the anyon on plaquette {f} cannot move across link {e}")
+        E = self.lat.edges[e]
+        self.apply_pauli(E.u, E.label.upper())
+        return dest
 
     # ----------------------------------------------------------------- reading
     def values(self) -> dict:

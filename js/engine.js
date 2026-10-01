@@ -113,9 +113,11 @@ class MatchingCode {
     this.incident = Array.from({ length: this.n }, () => []);
     this.edges.forEach((E, e) => { this.incident[E.u].push(e); this.incident[E.v].push(e); });
     this.seed = seed;
+    this.fixRate = 1;                                    // default chance a Majorana move fixes a -1
+    this.fixRand = mulberry32((seed ^ 0x9e3779b9) >>> 0); // separate from the tableau's, so fixing never changes outcomes
     this.tab = new Tableau(this.n, mulberry32(seed));
     this.pairs = new Map(); this.owner = new Array(this.n).fill(-1); this.next = 0;
-    this.log = []; this.force = null;
+    this.log = [];
     const seen = new Set();
     for (let q = 0; q < this.n; q++) {
       const e = this.incident[q].find(f => this.edges[f].label === "z");
@@ -143,26 +145,27 @@ class MatchingCode {
   other(P, q) { return q === P.a ? P.b : P.a; }
   pathFrom(P, q) { return q === P.a ? P.path.slice() : P.path.slice().reverse(); }
   _add(P) { const id = this.next++; this.pairs.set(id, P); this.owner[P.a] = this.owner[P.b] = id; return id; }
-  _measure(op) {
-    if (this.force != null && this.tab.peek(op) === 0) return this.tab.measure(op, this.force);
+  _measure(op, outcome = null) {
+    if (outcome != null && this.tab.peek(op) === 0) return this.tab.measure(op, outcome);
     return this.tab.measure(op);
   }
 
   // ---------------------------------------------------------- actions
-  measureLink(e) {
+  // outcome (+1 or -1) postselects a random outcome (replay uses this); a deterministic one is never changed.
+  measureLink(e, outcome = null) {
     const E = this.edges[e], i = E.u, j = E.v, K = this.linkPauli(e);
     const pi = this.owner[i], pj = this.owner[j];
     let m;
     if (pi === pj) {
       this.pairs.delete(pi);
-      m = this._measure(K);
+      m = this._measure(K, outcome);
       this._add({ a: i, b: j, path: [e], op: K, kind: "string" });
     } else {
       const A = this.pairs.get(pi), B = this.pairs.get(pj);
       this.pairs.delete(pi); this.pairs.delete(pj);
       const a = this.other(A, i), b = this.other(B, j);
       const op = pmul(pmul(A.op, B.op), K);
-      m = this._measure(K);
+      m = this._measure(K, outcome);
       const kind = A.kind === "string" && B.kind === "string" ? "string" : "majorana";
       const path = simplify([...this.pathFrom(A, a), e, ...this.pathFrom(B, j)]);
       this._add({ a: i, b: j, path: [e], op: K, kind: "string" });
@@ -186,7 +189,17 @@ class MatchingCode {
     this.edges.forEach((E, e) => { if (E.label === L) out.push(this.measureLink(e)); });
     return out;
   }
-  hopOptions(q) {
+  // Every particle has a list of the moves on offer and a method that makes one.
+  // Options are { edge, to, ... }: the link to use and where the particle ends up.
+  // The move methods throw unless the link is one of the options.
+  _move(options, e, what) {
+    const o = options.find(o => o.edge === e);
+    if (!o) throw new Error(`${what} cannot move across link ${e}`);
+    return o;
+  }
+
+  // Majorana at q: measure a link to a neighbour that sits in a dimer of another pair.
+  majoranaMoves(q) {
     const out = [];
     for (const e of this.incident[q]) {
       const j = this.edges[e].u === q ? this.edges[e].v : this.edges[e].u;
@@ -195,16 +208,20 @@ class MatchingCode {
     }
     return out;
   }
-  hop(q, e, correct = true) {
-    const j = this.edges[e].u === q ? this.edges[e].v : this.edges[e].u;
-    const Pj = this.pairs.get(this.owner[j]);
-    const k = this.other(Pj, j), old = this.pathFrom(Pj, j);
+  // On a -1 outcome the paper's fix removes the fermions with probability fix (default
+  // this.fixRate): 1 always fixes, 0 never does. The fix is logged applyLink calls, so
+  // replay is exact whatever the rate.
+  moveMajorana(q, e, fix = this.fixRate) {
+    const o = this._move(this.majoranaMoves(q), e, `the Majorana at ${q}`);
+    const Pj = this.pairs.get(this.owner[o.via]), old = this.pathFrom(Pj, o.via);
     const m = this.measureLink(e);
-    if (m === -1 && correct) for (const f of old) this.applyLink(f);
-    return { to: k, outcome: m };
+    const fixed = m === -1 && (fix >= 1 || (fix > 0 && this.fixRand() < fix));
+    if (fixed) for (const f of old) this.applyLink(f);
+    return { to: o.to, outcome: m, fixed };
   }
 
-  // Links leaving the pair that q belongs to; applying one toggles both pairs it joins.
+  // Fermion on the pair holding q: every link leaving the pair to a different pair. Applying
+  // the link operator toggles both pairs it joins, so a fermion on one side moves across.
   fermionMoves(q) {
     const id = this.owner[q], P = this.pairs.get(id), out = [];
     for (const end of [P.a, P.b]) for (const e of this.incident[end]) {
@@ -212,6 +229,39 @@ class MatchingCode {
       if (this.owner[j] !== id) out.push({ edge: e, to: j, pair: this.owner[j] });
     }
     return out;
+  }
+  moveFermion(q, e) {
+    const o = this._move(this.fermionMoves(q), e, `the fermion on the pair holding ${q}`);
+    this.applyLink(e);
+    return o;
+  }
+
+  // Anyon on plaquette f. Applying a link's own Pauli to one endpoint flips exactly the two
+  // plaquettes either side of that link. Only moves that keep the anyon's type (the two
+  // plaquettes have the same colour) onto a plaquette with no anyon are listed, so the
+  // number of e and of m anyons never changes.
+  anyonMoves(f) {
+    if (this.plaqValues()[f] !== -1) return [];
+    if (!this._edgeFaces) {
+      this._edgeFaces = new Map();
+      this.lat.faces.forEach((F, k) => F.edges.forEach(e => {
+        if (!this._edgeFaces.has(e)) this._edgeFaces.set(e, []);
+        this._edgeFaces.get(e).push(k);
+      }));
+    }
+    const { col } = this.colouring(), pv = this.plaqValues(), out = [];
+    for (const e of new Set(this.lat.faces[f].edges)) {
+      const fs = this._edgeFaces.get(e);
+      if (fs.length !== 2 || fs[0] === fs[1]) continue;
+      const g = fs[0] === f ? fs[1] : fs[0], E = this.edges[e];
+      if (col[g] === col[f] && pv[g] === 1) out.push({ edge: e, to: g, qubit: E.u, pauli: E.label.toUpperCase() });
+    }
+    return out;
+  }
+  moveAnyon(f, e) {
+    const o = this._move(this.anyonMoves(f), e, `the anyon on plaquette ${f}`);
+    this.applyPauli(o.qubit, o.pauli);
+    return o;
   }
 
   // ---------------------------------------------------------- reading
@@ -252,7 +302,7 @@ class MatchingCode {
   static replay(lat, rec, upTo = rec.log.length) {
     const c = new MatchingCode(lat, { seed: rec.seed, plaquetteRaw: rec.plaquette_raw });
     for (const s of rec.log.slice(0, upTo)) {
-      if (s.action === "measure_link") { c.force = s.outcome; c.measureLink(s.edge); c.force = null; }
+      if (s.action === "measure_link") { c.measureLink(s.edge, s.outcome); }
       else if (s.action === "apply_link") c.applyLink(s.edge);
       else if (s.action === "apply_pauli") c.applyPauli(s.qubit, s.pauli);
       else if (s.action === "release") c.release(s.qubit);

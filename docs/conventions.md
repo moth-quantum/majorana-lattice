@@ -73,12 +73,17 @@ The same rule covers every case: between two dimers it creates a Majorana
 pair; next to a Majorana it moves the Majorana two vertices along; between
 two Majoranas it fuses them.
 
-**Hopping** (`hop`, "Move Majorana" in the explorer) is a link measurement
-next to a Majorana, followed by the paper's fix when the outcome is -1:
-applying the link operators along the old dimer, which removes both fermions.
+**Moving a Majorana** (`move_majorana`, "Move Majorana" in the explorer) is a
+link measurement next to a Majorana, followed by the paper's fix when the
+outcome is -1: applying the link operators along the old dimer, which removes
+both fermions. The fix is applied with probability `fix`, per move
+(`move_majorana(q, e, fix=0.5)`), or the class default `fix_rate` when not
+given; 1 always fixes and 0 never does. It has its own random generator, so it
+never changes measurement outcomes, and the fix is logged as ordinary link
+actions, so replay is exact at any rate.
 
-**Routing** (`move_majorana`) plans a route that never reuses a vertex,
-either as a stop or as a vertex hopped across. Each hop rewires the dimers it
+**Routing** (`route_majorana`) plans a route that never reuses a vertex,
+either as a stop or as a vertex moved across. Each move rewires the dimers it
 passes, so a route that crosses its own wake would land somewhere other than
 planned, or even create a stray Majorana pair.
 
@@ -93,6 +98,29 @@ On a torus, a loop of even links can wind all the way round. When that
 happens the colouring is only defined locally, and `colouring()` reports it
 as inconsistent (the explorer shows a warning).
 
+## Moves
+
+Majoranas, fermions and anyons all move the same way. Each has a list of the
+moves on offer, as `[(link, destination)]`, and a method that makes one move
+across a given link. The method raises `ValueError` for a move that is not on
+the list.
+
+| particle | list | make one move | what it does |
+| --- | --- | --- | --- |
+| Majorana | `majorana_moves(q)` | `move_majorana(q, e)` | measures link `e`; the Majorana lands two vertices along |
+| fermion | `fermion_moves(q)` | `move_fermion(q, e)` | applies link `e`, toggling the fermion on both pairs it joins |
+| e or m anyon | `anyon_moves(f)` | `move_anyon(f, e)` | applies link `e`'s Pauli, flipping the two plaquettes either side |
+
+`route_majorana(a, b)` chains Majorana moves into a route.
+
+For anyons, applying a link's own Pauli (X on an x link, and so on) to one of
+its endpoints flips exactly the two plaquettes either side of that link. A move
+is on offer only if both faces have the same colour, so e stays e and m stays
+m, and the destination holds no anyon, so nothing is annihilated. Crossing a
+link whose faces differ in colour turns e into m and leaves a fermion on the
+dimer at the endpoint; that is available through `apply_pauli` but is not
+offered as a move. In vacuum the same-colour links are the z links.
+
 ## Torus effects
 
 The torus has two logical qubits. If a Majorana pair's path winds round the
@@ -102,8 +130,9 @@ tests and `examples/linking.py` do this by keeping moves inside a disc.
 
 ## Random outcomes and replay
 
-Setting `force = 1` postselects every random outcome to +1 (the explorer's
-"Force random outcomes to +1"). Deterministic outcomes are never changed.
+`measure_link(e, outcome=+1 or -1)` postselects a random outcome on that value;
+a deterministic outcome is never changed. Replay uses it to put each recorded
+outcome back, since the two engines draw their random numbers differently.
 
 Every run is a log of primitive actions (`measure_link` with its outcome,
 `apply_link`, `apply_pauli`, `release`), plus the initial plaquette outcomes.

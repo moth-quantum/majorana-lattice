@@ -32,9 +32,7 @@ def test_browser_engine_matches_stim(tmp_path):
             while k < snap["steps"]:
                 st, a = log[k], log[k]["action"]
                 if a == "measure_link":
-                    c.force = st["outcome"]
-                    assert c.measure_link(st["edge"]) == st["outcome"], st
-                    c.force = None
+                    assert c.measure_link(st["edge"], outcome=st["outcome"]) == st["outcome"], st
                 elif a == "apply_link":
                     c.apply_link(st["edge"])
                 elif a == "apply_pauli":

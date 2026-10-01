@@ -40,7 +40,7 @@ def move(c, p, x, y, avoid):
     for extra in range(8):
         t = nearest(x + 0.3 * extra, y, blocked)
         try:
-            return c.move_majorana(p, t, avoid=blocked)[-1]
+            return c.route_majorana(p, t, avoid=blocked)[-1]
         except ValueError:
             blocked = blocked | {t}
     raise RuntimeError("no route")
@@ -55,7 +55,7 @@ def fuse(c, pair, avoid):
             continue
         try:
             if p != t:
-                p = c.move_majorana(p, t, avoid=set(avoid) | {q} | OUTSIDE)[-1]
+                p = c.route_majorana(p, t, avoid=set(avoid) | {q} | OUTSIDE)[-1]
             break
         except ValueError:
             continue

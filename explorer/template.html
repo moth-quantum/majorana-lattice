@@ -142,7 +142,8 @@ textarea { width: 100%; height: 90px; font-size: 12px; background: var(--btn); c
     </section>
     <section>
       <h2>Options</h2>
-      <label class="check"><input type="checkbox" id="forceplus"> Force random outcomes to +1</label>
+      <label class="check" for="fixrate">Fix rate for Move Majorana: <output id="fixout">100%</output>
+        <input type="range" id="fixrate" min="0" max="100" value="100" step="5" style="width:100%"></label>
       <label class="check"><input type="checkbox" id="shade"> Shade the e and m regions</label>
       <label class="check"><input type="checkbox" id="threads" checked> Link each Majorana to its partner</label>
       <div class="row" style="margin-top:8px">
@@ -177,10 +178,10 @@ const TOOLS = [
   { id: "Z", name: "Z error", key: "5", target: "qubit", desc: "Apply Z to a qubit." },
   { id: "release", name: "Split dimer", key: "6", target: "qubit",
     desc: "Bookkeeping only: nothing happens to the qubits. The dimer's two ends are relabelled as Majoranas so you can move them. Click either one again to relabel them as a dimer." },
-  { id: "hop", name: "Move Majorana, fixing -1", key: "7", target: "qubit",
-    desc: "A shortcut. Click a Majorana to see where it can jump, then click a destination. It measures the link for you and, if the outcome is -1, applies the paper's fix so no fermions are left behind." },
-  { id: "hopraw", name: "Move Majorana, raw", key: "9", target: "qubit",
-    desc: "Like the hop shortcut, but with no fix. Click a Majorana, then a destination. It measures the link and leaves whatever the outcome gives: on -1, fermions stay on the new pairs." },
+  { id: "majorana", name: "Move Majorana", key: "7", target: "qubit",
+    desc: "A shortcut. Click a Majorana to see where it can move, then click a destination. It measures the link for you. On a -1 outcome it applies the paper's fix with the probability set by the fix rate in Options: 100% leaves no fermions behind, 0% leaves them." },
+  { id: "anyon", name: "Move e/m anyon", key: "0", target: "face",
+    desc: "Click a plaquette holding an e or m anyon, then a ringed neighbour. It applies the Pauli that flips exactly those two plaquettes, so the anyon steps across the link between them. Only neighbours of the same colour with no anyon are offered, so e stays e, m stays m, and no fermion is made." },
   { id: "fermion", name: "Move fermion", key: "8", target: "qubit",
     desc: "Click a qubit to see the neighbouring pairs, then click one. It applies the link between the two pairs, toggling a fermion on each, so a fermion on one side moves across. Nothing is measured." },
 ];
@@ -192,7 +193,7 @@ function lattice(name) { return { ...LATTICES[name], name }; }
 function newCode(seed) {
   lat = lattice(latName);
   code = new MatchingCode(lat, { seed });
-  code.force = $("forceplus").checked ? 1 : null;
+  code.fixRate = $("fixrate").value / 100;
   history = []; selected = null;
   render();
 }
@@ -304,11 +305,11 @@ function render() {
       tx.textContent = "\u03c8";
     }
 
-  // hop highlights
-  if ((tool === "hop" || tool === "hopraw") && selected != null) {
+  // Majorana-move highlights
+  if (tool === "majorana" && selected != null) {
     for (const [c] of copies([lat.positions[selected]], OFF1))
       el("circle", { cx: c[0], cy: H - c[1], r: 0.2, fill: "none", stroke: "var(--hl)", "stroke-width": 0.04 }, gH);
-    for (const o of code.hopOptions(selected))
+    for (const o of code.majoranaMoves(selected))
       for (const [c] of copies([lat.positions[o.to]], OFF1))
         el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--maj)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
   }
@@ -324,6 +325,15 @@ function render() {
         el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--fermion)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
   }
 
+  // anyon-move highlights
+  if (tool === "anyon" && selected != null) {
+    for (const pts of copies(faceShape(lat.faces[selected]), OFF1))
+      el("polygon", { points: pstr(pts), fill: "none", stroke: "var(--hl)", "stroke-width": 0.06, "stroke-linejoin": "round" }, gH);
+    for (const o of code.anyonMoves(selected))
+      for (const pts of copies(faceShape(lat.faces[o.to]), OFF1))
+        el("polygon", { points: pstr(pts), fill: "none", stroke: col[o.to] === 0 ? "var(--e)" : "var(--m)", "stroke-width": 0.05, "stroke-linejoin": "round" }, gH);
+  }
+
   // hit targets
   const T =TOOLS.find(t => t.id === tool);
   if (T.target === "link") {
@@ -333,6 +343,15 @@ function render() {
         h.addEventListener("click", () => onLink(e));
         h.addEventListener("mouseenter", () => h.setAttribute("stroke", "rgba(127,127,127,0.25)"));
         h.addEventListener("mouseleave", () => h.setAttribute("stroke", "transparent"));
+      }
+    });
+  } else if (T.target === "face") {
+    lat.faces.forEach((f, k) => {
+      for (const pts of copies(faceShape(f), OFF1)) {
+        const h = el("polygon", { points: pstr(pts), fill: "transparent", class: "hit" }, gT);
+        h.addEventListener("click", () => onFace(k));
+        h.addEventListener("mouseenter", () => h.setAttribute("fill", "rgba(127,127,127,0.18)"));
+        h.addEventListener("mouseleave", () => h.setAttribute("fill", "transparent"));
       }
     });
   } else {
@@ -374,14 +393,13 @@ function onQubit(q) {
     commit(P.kind === "majorana" ? `Split dimer ${P.a}-${P.b} into Majoranas` : `Joined Majoranas ${P.a}-${P.b} into a dimer`);
     return;
   }
-  if (tool === "hop" || tool === "hopraw") {
-    const fix = tool === "hop";
+  if (tool === "majorana") {
     if (selected != null) {
-      const o = code.hopOptions(selected).find(o => o.to === q);
+      const o = code.majoranaMoves(selected).find(o => o.to === q);
       if (o) {
-        const from = selected, r = code.hop(selected, o.edge, fix);
+        const from = selected, E = code.edges[o.edge], r = code.moveMajorana(selected, o.edge);
         selected = r.to;
-        commit(`Moved Majorana ${from} to ${r.to}: ${sign(r.outcome)}${r.outcome === -1 ? (fix ? ", fermions removed" : ", fermions left") : ""}`);
+        commit(`Moved Majorana ${from} to ${r.to} across ${E.label} link ${E.u}-${E.v}: ${sign(r.outcome)}${r.outcome === -1 ? (r.fixed ? ", fermions removed" : ", fermions left") : ""}`);
         return;
       }
     }
@@ -395,9 +413,9 @@ function onQubit(q) {
       const o = code.fermionMoves(selected).find(o => o.pair === code.owner[q]);
       if (o) {
         const from = code.pairs.get(code.owner[selected]), E = code.edges[o.edge];
-        code.applyLink(o.edge);
+        code.moveFermion(selected, o.edge);
         selected = o.to;
-        commit(`Moved fermion from ${from.a}-${from.b} to ${o.to} across ${E.label} link ${E.u}-${E.v}`);
+        commit(`Moved fermion ${from.a}-${from.b} to ${o.to} across ${E.label} link ${E.u}-${E.v}`);
         return;
       }
     }
@@ -405,6 +423,21 @@ function onQubit(q) {
     setHint("Click a ringed destination.");
     render();
   }
+}
+function onFace(k) {
+  const o = selected != null && code.anyonMoves(selected).find(o => o.to === k);
+  if (o) {
+    const { col } = code.colouring(), E = code.edges[o.edge], type = col[selected] === 0 ? "e" : "m";
+    code.moveAnyon(selected, o.edge);
+    const from = selected;
+    selected = k;
+    commit(`Moved ${type} anyon ${from} to ${k} across ${E.label} link ${E.u}-${E.v}`);
+    return;
+  }
+  const holds = code.plaqValues()[k] === -1;
+  selected = holds ? k : null;
+  setHint(holds ? "Click a ringed neighbour." : "No anyon on that plaquette. Pick a coloured one (an e or m).");
+  render();
 }
 function setHint(t) { $("hint").textContent = t; }
 
@@ -420,7 +453,7 @@ function buildTools() {
   }
   const T = TOOLS.find(t => t.id === tool);
   $("tooldesc").textContent = T.desc;
-  setHint(T.target === "link" ? "Click a link. The board wraps around at the edges." : "Click a qubit. The board wraps around at the edges.");
+  setHint(`Click a ${T.target}. The board wraps around at the edges.`);
 }
 function setTool(id) { tool = id; selected = null; buildTools(); render(); }
 
@@ -434,16 +467,16 @@ document.querySelectorAll("[data-round]").forEach(b => b.addEventListener("click
   const L = b.dataset.round, out = code.measureLabel(L);
   commit(`Measured all ${L} links: ${out.filter(m => m === -1).length} of ${out.length} gave -1`);
 }));
-$("forceplus").addEventListener("change", e => { code.force = e.target.checked ? 1 : null; });
+$("fixrate").addEventListener("input", e => { code.fixRate = e.target.value / 100; $("fixout").textContent = e.target.value + "%"; });
 $("shade").addEventListener("change", e => { shade = e.target.checked; render(); });
 $("threads").addEventListener("change", e => { threads = e.target.checked; render(); });
 $("reset").addEventListener("click", () => newCode(randSeed()));
 $("undo").addEventListener("click", () => {
   history.pop();
   const upTo = history.length ? history[history.length - 1].logLen : 0;
-  const rec = code.record(), force = code.force;
+  const rec = code.record(), fixRate = code.fixRate;
   code = MatchingCode.replay(lat, rec, upTo);
-  code.force = force; selected = null; render();
+  code.fixRate = fixRate; selected = null; render();
 });
 $("copy").addEventListener("click", async () => {
   const txt = JSON.stringify(code.record());

@@ -52,14 +52,6 @@ def test_link_clicks():
     check("fermions are created in pairs", ok_parity)
 
 
-def test_forced_outcomes():
-    c = MatchingCode(star(4, 4), seed=3, force=1)
-    rng = random.Random(3)
-    for _ in range(100):
-        c.measure_link(rng.randrange(len(c.lat.edges)))
-    check("with outcomes forced to +1, no fermions ever appear", c.summary()["fermions"] == 0)
-
-
 def test_pauli_errors():
     c = MatchingCode(star(4, 4), seed=4)
     c.apply_pauli(0, "X")
@@ -115,12 +107,12 @@ def _exchange(c, p, q, fixed):
     three-leg teleportation exchange)."""
     free = set(fixed) - {p, q}
     # choose a temporary vertex reachable from p
-    for e, t in c.hop_options(p):
+    for e, t in c.majorana_moves(p):
         if t not in fixed:
             break
-    t = c.move_majorana(p, t, avoid=free | {q})[-1]
-    c.move_majorana(q, p, avoid=free | {t})
-    c.move_majorana(t, q, avoid=free | {p})
+    t = c.route_majorana(p, t, avoid=free | {q})[-1]
+    c.route_majorana(q, p, avoid=free | {t})
+    c.route_majorana(t, q, avoid=free | {p})
 
 
 def test_braiding():
@@ -162,11 +154,11 @@ def test_route_independence():
         for _ in range(60):
             mover = r.choice([0, 1])
             x = (p, q)[mover]
-            opts = [(f, t) for f, t in c.hop_options(x) if t not in out and t not in (p, q)
+            opts = [(f, t) for f, t in c.majorana_moves(x) if t not in out and t not in (p, q)
                     and L.edges[f].other(x) not in (p, q)]
             if opts:
                 f, t = r.choice(opts)
-                new = c.hop(x, f)
+                new = c.move_majorana(x, f)
                 p, q = (new, q) if mover == 0 else (p, new)
         for f in L.incident[q]:
             target = L.edges[f].other(q)
@@ -174,7 +166,7 @@ def test_route_independence():
                 continue
             try:
                 if p != target:
-                    p = c.move_majorana(p, target, avoid=out | {q})[-1]
+                    p = c.route_majorana(p, target, avoid=out | {q})[-1]
                 break
             except ValueError:
                 continue

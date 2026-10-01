@@ -52,8 +52,8 @@ print(code.summary())                      # counts of fermions, e, m, Majoranas
 
 # Move a Majorana: measures the link and fixes a -1 outcome.
 m = code.majoranas()[0]
-link, destination = code.hop_options(m)[0]
-code.hop(m, link)
+link, destination = code.majorana_moves(m)[0]
+code.move_majorana(m, link)
 
 # Every run is a log you can save and replay exactly.
 record = code.record()
