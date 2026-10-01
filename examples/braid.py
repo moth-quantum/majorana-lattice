@@ -31,7 +31,7 @@ def go_near(c, p, x, y, avoid):
         if t in avoid:
             continue
         try:
-            return c.move_majorana(p, t, avoid=avoid)[-1]
+            return c.route_majorana(p, t, avoid=avoid)[-1]
         except ValueError:
             continue
     raise RuntimeError("no reachable vertex near the target")
@@ -65,10 +65,10 @@ outside = {q for q in range(L.n) if dist2(q, mx, my) > 3.0 ** 2}
 
 def exchange(p, q):
     others = {a1, b2} | outside
-    t = next(t for _, t in c.hop_options(p) if t not in others | {q})
-    t = c.move_majorana(p, t, avoid=others | {q})[-1]
-    c.move_majorana(q, p, avoid=others | {t})
-    c.move_majorana(t, q, avoid=others | {p})
+    t = next(t for _, t in c.majorana_moves(p) if t not in others | {q})
+    t = c.route_majorana(p, t, avoid=others | {q})[-1]
+    c.route_majorana(q, p, avoid=others | {t})
+    c.route_majorana(t, q, avoid=others | {p})
 
 
 print("start:          pair A", label[peek(piA)], "| pair B", label[peek(piB)])

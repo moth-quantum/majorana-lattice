@@ -142,7 +142,8 @@ textarea { width: 100%; height: 90px; font-size: 12px; background: var(--btn); c
     </section>
     <section>
       <h2>Options</h2>
-      <label class="check"><input type="checkbox" id="forceplus"> Force random outcomes to +1</label>
+      <label class="check" for="fixrate">Fix rate for Move Majorana: <output id="fixout">100%</output>
+        <input type="range" id="fixrate" min="0" max="100" value="100" step="5" style="width:100%"></label>
       <label class="check"><input type="checkbox" id="shade"> Shade the e and m regions</label>
       <label class="check"><input type="checkbox" id="threads" checked> Link each Majorana to its partner</label>
       <div class="row" style="margin-top:8px">
@@ -277,9 +278,11 @@ class MatchingCode {
     this.incident = Array.from({ length: this.n }, () => []);
     this.edges.forEach((E, e) => { this.incident[E.u].push(e); this.incident[E.v].push(e); });
     this.seed = seed;
+    this.fixRate = 1;                                    // default chance a Majorana move fixes a -1
+    this.fixRand = mulberry32((seed ^ 0x9e3779b9) >>> 0); // separate from the tableau's, so fixing never changes outcomes
     this.tab = new Tableau(this.n, mulberry32(seed));
     this.pairs = new Map(); this.owner = new Array(this.n).fill(-1); this.next = 0;
-    this.log = []; this.force = null;
+    this.log = [];
     const seen = new Set();
     for (let q = 0; q < this.n; q++) {
       const e = this.incident[q].find(f => this.edges[f].label === "z");
@@ -307,26 +310,27 @@ class MatchingCode {
   other(P, q) { return q === P.a ? P.b : P.a; }
   pathFrom(P, q) { return q === P.a ? P.path.slice() : P.path.slice().reverse(); }
   _add(P) { const id = this.next++; this.pairs.set(id, P); this.owner[P.a] = this.owner[P.b] = id; return id; }
-  _measure(op) {
-    if (this.force != null && this.tab.peek(op) === 0) return this.tab.measure(op, this.force);
+  _measure(op, outcome = null) {
+    if (outcome != null && this.tab.peek(op) === 0) return this.tab.measure(op, outcome);
     return this.tab.measure(op);
   }
 
   // ---------------------------------------------------------- actions
-  measureLink(e) {
+  // outcome (+1 or -1) postselects a random outcome (replay uses this); a deterministic one is never changed.
+  measureLink(e, outcome = null) {
     const E = this.edges[e], i = E.u, j = E.v, K = this.linkPauli(e);
     const pi = this.owner[i], pj = this.owner[j];
     let m;
     if (pi === pj) {
       this.pairs.delete(pi);
-      m = this._measure(K);
+      m = this._measure(K, outcome);
       this._add({ a: i, b: j, path: [e], op: K, kind: "string" });
     } else {
       const A = this.pairs.get(pi), B = this.pairs.get(pj);
       this.pairs.delete(pi); this.pairs.delete(pj);
       const a = this.other(A, i), b = this.other(B, j);
       const op = pmul(pmul(A.op, B.op), K);
-      m = this._measure(K);
+      m = this._measure(K, outcome);
       const kind = A.kind === "string" && B.kind === "string" ? "string" : "majorana";
       const path = simplify([...this.pathFrom(A, a), e, ...this.pathFrom(B, j)]);
       this._add({ a: i, b: j, path: [e], op: K, kind: "string" });
@@ -350,7 +354,17 @@ class MatchingCode {
     this.edges.forEach((E, e) => { if (E.label === L) out.push(this.measureLink(e)); });
     return out;
   }
-  hopOptions(q) {
+  // Every particle has a list of the moves on offer and a method that makes one.
+  // Options are { edge, to, ... }: the link to use and where the particle ends up.
+  // The move methods throw unless the link is one of the options.
+  _move(options, e, what) {
+    const o = options.find(o => o.edge === e);
+    if (!o) throw new Error(`${what} cannot move across link ${e}`);
+    return o;
+  }
+
+  // Majorana at q: measure a link to a neighbour that sits in a dimer of another pair.
+  majoranaMoves(q) {
     const out = [];
     for (const e of this.incident[q]) {
       const j = this.edges[e].u === q ? this.edges[e].v : this.edges[e].u;
@@ -359,16 +373,20 @@ class MatchingCode {
     }
     return out;
   }
-  hop(q, e, correct = true) {
-    const j = this.edges[e].u === q ? this.edges[e].v : this.edges[e].u;
-    const Pj = this.pairs.get(this.owner[j]);
-    const k = this.other(Pj, j), old = this.pathFrom(Pj, j);
+  // On a -1 outcome the paper's fix removes the fermions with probability fix (default
+  // this.fixRate): 1 always fixes, 0 never does. The fix is logged applyLink calls, so
+  // replay is exact whatever the rate.
+  moveMajorana(q, e, fix = this.fixRate) {
+    const o = this._move(this.majoranaMoves(q), e, `the Majorana at ${q}`);
+    const Pj = this.pairs.get(this.owner[o.via]), old = this.pathFrom(Pj, o.via);
     const m = this.measureLink(e);
-    if (m === -1 && correct) for (const f of old) this.applyLink(f);
-    return { to: k, outcome: m };
+    const fixed = m === -1 && (fix >= 1 || (fix > 0 && this.fixRand() < fix));
+    if (fixed) for (const f of old) this.applyLink(f);
+    return { to: o.to, outcome: m, fixed };
   }
 
-  // Links leaving the pair that q belongs to; applying one toggles both pairs it joins.
+  // Fermion on the pair holding q: every link leaving the pair to a different pair. Applying
+  // the link operator toggles both pairs it joins, so a fermion on one side moves across.
   fermionMoves(q) {
     const id = this.owner[q], P = this.pairs.get(id), out = [];
     for (const end of [P.a, P.b]) for (const e of this.incident[end]) {
@@ -376,6 +394,39 @@ class MatchingCode {
       if (this.owner[j] !== id) out.push({ edge: e, to: j, pair: this.owner[j] });
     }
     return out;
+  }
+  moveFermion(q, e) {
+    const o = this._move(this.fermionMoves(q), e, `the fermion on the pair holding ${q}`);
+    this.applyLink(e);
+    return o;
+  }
+
+  // Anyon on plaquette f. Applying a link's own Pauli to one endpoint flips exactly the two
+  // plaquettes either side of that link. Only moves that keep the anyon's type (the two
+  // plaquettes have the same colour) onto a plaquette with no anyon are listed, so the
+  // number of e and of m anyons never changes.
+  anyonMoves(f) {
+    if (this.plaqValues()[f] !== -1) return [];
+    if (!this._edgeFaces) {
+      this._edgeFaces = new Map();
+      this.lat.faces.forEach((F, k) => F.edges.forEach(e => {
+        if (!this._edgeFaces.has(e)) this._edgeFaces.set(e, []);
+        this._edgeFaces.get(e).push(k);
+      }));
+    }
+    const { col } = this.colouring(), pv = this.plaqValues(), out = [];
+    for (const e of new Set(this.lat.faces[f].edges)) {
+      const fs = this._edgeFaces.get(e);
+      if (fs.length !== 2 || fs[0] === fs[1]) continue;
+      const g = fs[0] === f ? fs[1] : fs[0], E = this.edges[e];
+      if (col[g] === col[f] && pv[g] === 1) out.push({ edge: e, to: g, qubit: E.u, pauli: E.label.toUpperCase() });
+    }
+    return out;
+  }
+  moveAnyon(f, e) {
+    const o = this._move(this.anyonMoves(f), e, `the anyon on plaquette ${f}`);
+    this.applyPauli(o.qubit, o.pauli);
+    return o;
   }
 
   // ---------------------------------------------------------- reading
@@ -416,7 +467,7 @@ class MatchingCode {
   static replay(lat, rec, upTo = rec.log.length) {
     const c = new MatchingCode(lat, { seed: rec.seed, plaquetteRaw: rec.plaquette_raw });
     for (const s of rec.log.slice(0, upTo)) {
-      if (s.action === "measure_link") { c.force = s.outcome; c.measureLink(s.edge); c.force = null; }
+      if (s.action === "measure_link") { c.measureLink(s.edge, s.outcome); }
       else if (s.action === "apply_link") c.applyLink(s.edge);
       else if (s.action === "apply_pauli") c.applyPauli(s.qubit, s.pauli);
       else if (s.action === "release") c.release(s.qubit);
@@ -447,10 +498,10 @@ const TOOLS = [
   { id: "Z", name: "Z error", key: "5", target: "qubit", desc: "Apply Z to a qubit." },
   { id: "release", name: "Split dimer", key: "6", target: "qubit",
     desc: "Bookkeeping only: nothing happens to the qubits. The dimer's two ends are relabelled as Majoranas so you can move them. Click either one again to relabel them as a dimer." },
-  { id: "hop", name: "Move Majorana, fixing -1", key: "7", target: "qubit",
-    desc: "A shortcut. Click a Majorana to see where it can jump, then click a destination. It measures the link for you and, if the outcome is -1, applies the paper's fix so no fermions are left behind." },
-  { id: "hopraw", name: "Move Majorana, raw", key: "9", target: "qubit",
-    desc: "Like the hop shortcut, but with no fix. Click a Majorana, then a destination. It measures the link and leaves whatever the outcome gives: on -1, fermions stay on the new pairs." },
+  { id: "majorana", name: "Move Majorana", key: "7", target: "qubit",
+    desc: "A shortcut. Click a Majorana to see where it can move, then click a destination. It measures the link for you. On a -1 outcome it applies the paper's fix with the probability set by the fix rate in Options: 100% leaves no fermions behind, 0% leaves them." },
+  { id: "anyon", name: "Move e/m anyon", key: "0", target: "face",
+    desc: "Click a plaquette holding an e or m anyon, then a ringed neighbour. It applies the Pauli that flips exactly those two plaquettes, so the anyon steps across the link between them. Only neighbours of the same colour with no anyon are offered, so e stays e, m stays m, and no fermion is made." },
   { id: "fermion", name: "Move fermion", key: "8", target: "qubit",
     desc: "Click a qubit to see the neighbouring pairs, then click one. It applies the link between the two pairs, toggling a fermion on each, so a fermion on one side moves across. Nothing is measured." },
 ];
@@ -462,7 +513,7 @@ function lattice(name) { return { ...LATTICES[name], name }; }
 function newCode(seed) {
   lat = lattice(latName);
   code = new MatchingCode(lat, { seed });
-  code.force = $("forceplus").checked ? 1 : null;
+  code.fixRate = $("fixrate").value / 100;
   history = []; selected = null;
   render();
 }
@@ -574,11 +625,11 @@ function render() {
       tx.textContent = "\u03c8";
     }
 
-  // hop highlights
-  if ((tool === "hop" || tool === "hopraw") && selected != null) {
+  // Majorana-move highlights
+  if (tool === "majorana" && selected != null) {
     for (const [c] of copies([lat.positions[selected]], OFF1))
       el("circle", { cx: c[0], cy: H - c[1], r: 0.2, fill: "none", stroke: "var(--hl)", "stroke-width": 0.04 }, gH);
-    for (const o of code.hopOptions(selected))
+    for (const o of code.majoranaMoves(selected))
       for (const [c] of copies([lat.positions[o.to]], OFF1))
         el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--maj)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
   }
@@ -594,6 +645,15 @@ function render() {
         el("circle", { cx: c[0], cy: H - c[1], r: 0.17, fill: "none", stroke: "var(--fermion)", "stroke-width": 0.045, "stroke-dasharray": "0.08 0.06" }, gH);
   }
 
+  // anyon-move highlights
+  if (tool === "anyon" && selected != null) {
+    for (const pts of copies(faceShape(lat.faces[selected]), OFF1))
+      el("polygon", { points: pstr(pts), fill: "none", stroke: "var(--hl)", "stroke-width": 0.06, "stroke-linejoin": "round" }, gH);
+    for (const o of code.anyonMoves(selected))
+      for (const pts of copies(faceShape(lat.faces[o.to]), OFF1))
+        el("polygon", { points: pstr(pts), fill: "none", stroke: col[o.to] === 0 ? "var(--e)" : "var(--m)", "stroke-width": 0.05, "stroke-linejoin": "round" }, gH);
+  }
+
   // hit targets
   const T =TOOLS.find(t => t.id === tool);
   if (T.target === "link") {
@@ -603,6 +663,15 @@ function render() {
         h.addEventListener("click", () => onLink(e));
         h.addEventListener("mouseenter", () => h.setAttribute("stroke", "rgba(127,127,127,0.25)"));
         h.addEventListener("mouseleave", () => h.setAttribute("stroke", "transparent"));
+      }
+    });
+  } else if (T.target === "face") {
+    lat.faces.forEach((f, k) => {
+      for (const pts of copies(faceShape(f), OFF1)) {
+        const h = el("polygon", { points: pstr(pts), fill: "transparent", class: "hit" }, gT);
+        h.addEventListener("click", () => onFace(k));
+        h.addEventListener("mouseenter", () => h.setAttribute("fill", "rgba(127,127,127,0.18)"));
+        h.addEventListener("mouseleave", () => h.setAttribute("fill", "transparent"));
       }
     });
   } else {
@@ -644,14 +713,13 @@ function onQubit(q) {
     commit(P.kind === "majorana" ? `Split dimer ${P.a}-${P.b} into Majoranas` : `Joined Majoranas ${P.a}-${P.b} into a dimer`);
     return;
   }
-  if (tool === "hop" || tool === "hopraw") {
-    const fix = tool === "hop";
+  if (tool === "majorana") {
     if (selected != null) {
-      const o = code.hopOptions(selected).find(o => o.to === q);
+      const o = code.majoranaMoves(selected).find(o => o.to === q);
       if (o) {
-        const from = selected, r = code.hop(selected, o.edge, fix);
+        const from = selected, E = code.edges[o.edge], r = code.moveMajorana(selected, o.edge);
         selected = r.to;
-        commit(`Moved Majorana ${from} to ${r.to}: ${sign(r.outcome)}${r.outcome === -1 ? (fix ? ", fermions removed" : ", fermions left") : ""}`);
+        commit(`Moved Majorana ${from} to ${r.to} across ${E.label} link ${E.u}-${E.v}: ${sign(r.outcome)}${r.outcome === -1 ? (r.fixed ? ", fermions removed" : ", fermions left") : ""}`);
         return;
       }
     }
@@ -665,9 +733,9 @@ function onQubit(q) {
       const o = code.fermionMoves(selected).find(o => o.pair === code.owner[q]);
       if (o) {
         const from = code.pairs.get(code.owner[selected]), E = code.edges[o.edge];
-        code.applyLink(o.edge);
+        code.moveFermion(selected, o.edge);
         selected = o.to;
-        commit(`Moved fermion from ${from.a}-${from.b} to ${o.to} across ${E.label} link ${E.u}-${E.v}`);
+        commit(`Moved fermion ${from.a}-${from.b} to ${o.to} across ${E.label} link ${E.u}-${E.v}`);
         return;
       }
     }
@@ -675,6 +743,21 @@ function onQubit(q) {
     setHint("Click a ringed destination.");
     render();
   }
+}
+function onFace(k) {
+  const o = selected != null && code.anyonMoves(selected).find(o => o.to === k);
+  if (o) {
+    const { col } = code.colouring(), E = code.edges[o.edge], type = col[selected] === 0 ? "e" : "m";
+    code.moveAnyon(selected, o.edge);
+    const from = selected;
+    selected = k;
+    commit(`Moved ${type} anyon ${from} to ${k} across ${E.label} link ${E.u}-${E.v}`);
+    return;
+  }
+  const holds = code.plaqValues()[k] === -1;
+  selected = holds ? k : null;
+  setHint(holds ? "Click a ringed neighbour." : "No anyon on that plaquette. Pick a coloured one (an e or m).");
+  render();
 }
 function setHint(t) { $("hint").textContent = t; }
 
@@ -690,7 +773,7 @@ function buildTools() {
   }
   const T = TOOLS.find(t => t.id === tool);
   $("tooldesc").textContent = T.desc;
-  setHint(T.target === "link" ? "Click a link. The board wraps around at the edges." : "Click a qubit. The board wraps around at the edges.");
+  setHint(`Click a ${T.target}. The board wraps around at the edges.`);
 }
 function setTool(id) { tool = id; selected = null; buildTools(); render(); }
 
@@ -704,16 +787,16 @@ document.querySelectorAll("[data-round]").forEach(b => b.addEventListener("click
   const L = b.dataset.round, out = code.measureLabel(L);
   commit(`Measured all ${L} links: ${out.filter(m => m === -1).length} of ${out.length} gave -1`);
 }));
-$("forceplus").addEventListener("change", e => { code.force = e.target.checked ? 1 : null; });
+$("fixrate").addEventListener("input", e => { code.fixRate = e.target.value / 100; $("fixout").textContent = e.target.value + "%"; });
 $("shade").addEventListener("change", e => { shade = e.target.checked; render(); });
 $("threads").addEventListener("change", e => { threads = e.target.checked; render(); });
 $("reset").addEventListener("click", () => newCode(randSeed()));
 $("undo").addEventListener("click", () => {
   history.pop();
   const upTo = history.length ? history[history.length - 1].logLen : 0;
-  const rec = code.record(), force = code.force;
+  const rec = code.record(), fixRate = code.fixRate;
   code = MatchingCode.replay(lat, rec, upTo);
-  code.force = force; selected = null; render();
+  code.fixRate = fixRate; selected = null; render();
 });
 $("copy").addEventListener("click", async () => {
   const txt = JSON.stringify(code.record());

@@ -16,7 +16,7 @@ for (let s = 1; s <= 12; s++) {
     pairs: [...c.pairs.entries()].map(([id, P]) => [Math.min(P.a, P.b), Math.max(P.a, P.b), P.kind, c.pairValue(id)]).sort((x, y) => x[0] - y[0]),
     col: c.colouring(),
   });
-  if (s % 3 === 0) c.force = 1;
+  c.fixRate = [1, 0.5, 0][s % 3];   // moves fix a -1 always, half the time, never
   for (let t = 0; t < 120; t++) {
     const u = rnd();
     if (u < 0.55) c.measureLink(Math.floor(rnd() * c.edges.length));
@@ -26,7 +26,7 @@ for (let s = 1; s <= 12; s++) {
     else if (u < 0.8) c.measureLabel("xyz"[Math.floor(rnd() * 3)]);
     else {
       const ms = [...c.pairs.values()].filter(P => P.kind === "majorana").flatMap(P => [P.a, P.b]);
-      if (ms.length) { const q = ms[Math.floor(rnd() * ms.length)]; const o = c.hopOptions(q); if (o.length) c.hop(q, o[Math.floor(rnd() * o.length)].edge); }
+      if (ms.length) { const q = ms[Math.floor(rnd() * ms.length)]; const o = c.majoranaMoves(q); if (o.length) c.moveMajorana(q, o[Math.floor(rnd() * o.length)].edge); }
     }
     snap();
   }
