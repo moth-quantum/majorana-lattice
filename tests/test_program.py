@@ -1,35 +1,71 @@
-"""The circuit engine (Program, ops, queries, run) against the interactive one
-(MatchingCode), against Stim's own flow checker, and against the physics."""
-import importlib.util
+"""Programs: the vacuum, the bookkeeping (checked by Stim itself), running,
+replay from the circuit, and executors."""
 import random
-from pathlib import Path
 
 import numpy as np
 import pytest
 import stim
 
-from majorana_lattice import (Link, MatchingCode, Plaquette, Program, Vertex, anyon_moves, apply_link,
-                              apply_pauli, create_anyons, create_majoranas, dimers, fermion_moves,
-                              honeycomb, is_dimer, majorana_moves, majoranas, measure_link,
-                              modified_honeycomb, move_anyon, move_fermion, move_majorana,
-                              plaquette_values, prepare, readout, release, run, split_dimer, star,
-                              stim_executor)
-from majorana_lattice.run import Result
-
-ROOT = Path(__file__).resolve().parent.parent
+from majorana_lattice import (Link, Plaquette, Program, Vertex, anyon_moves, apply_link, apply_pauli,
+                              create_anyons, create_majoranas, dimers, fermion_moves, honeycomb,
+                              majorana_moves, majoranas, measure_link, modified_honeycomb,
+                              move_anyon, move_fermion, move_majorana, plaquette_values, prepare,
+                              readout, release, run, split_dimer, star, stim_executor)
 
 
-def ints(lat, xs):
-    return [lat.index(x) for x in xs]
+def postselected_vacuum(L, background):
+    """The vacuum by definition: the background product state, postselected
+    onto every plaquette reading +1. Returns the state and the plaquettes."""
+    sim = stim.TableauSimulator()
+    for q in range(L.n):
+        if background == "x":
+            sim.h(q)
+        elif background == "y":
+            sim.h_yz(q)
+    plaqs = []
+    for f in L.faces:
+        p = stim.PauliString(L.n)
+        for q, P in f.pauli.items():
+            p[q] = P
+        if sim.peek_observable_expectation(p) == 0:
+            sim.postselect_observable(p, desired_value=False)
+        plaqs.append(p if sim.peek_observable_expectation(p) == 1 else -p)
+    return sim, plaqs
 
 
-def moves_as_ints(lat, moves):
-    return [(lat.index(a), lat.index(b)) for a, b in moves]
+def random_step(rng, p):
+    """One random action, chosen from what the bookkeeping offers."""
+    L = p.lattice
+    r = rng.random()
+    if r < 0.3:
+        return measure_link(p, rng.randrange(len(L.edges)))
+    if r < 0.4:
+        return apply_pauli(p, rng.randrange(L.n), rng.choice("XYZ"))
+    if r < 0.5:
+        return apply_link(p, rng.randrange(len(L.edges)))
+    if r < 0.6:
+        return release(p, rng.randrange(L.n))
+    if r < 0.85 and majoranas(p):
+        v = rng.choice(majoranas(p))
+        mv = majorana_moves(p, v)
+        if mv:
+            return move_majorana(p, v, rng.choice(mv)[0])
+    if r < 0.92:
+        v = rng.randrange(L.n)
+        return move_fermion(p, v, rng.choice(fermion_moves(p, v))[0])
+    fs = [f for f in range(len(L.faces)) if anyon_moves(p, f)]
+    if fs:
+        f = rng.choice(fs)
+        return move_anyon(p, f, rng.choice(anyon_moves(p, f))[0])
+    return p
 
 
-def value_on(p, P, bits):
-    """A pair's value given one shot's measurement records."""
-    return int(Result(p, np.array([bits], dtype=bool)).value(P)[0])
+def random_program(seed, steps, L=None):
+    rng = random.Random(seed)
+    p = prepare(L or star(4, 4))
+    for _ in range(steps):
+        p = random_step(rng, p)
+    return p
 
 
 def flow_holds(circuit, P):
@@ -42,15 +78,15 @@ def flow_holds(circuit, P):
 # ------------------------------------------------------------------ vacuum
 @pytest.mark.parametrize("make", [star, honeycomb, modified_honeycomb])
 @pytest.mark.parametrize("background", "xyz")
-def test_vacuum_is_the_reference_state(make, background):
+def test_vacuum_is_the_postselected_state(make, background):
     L = make(4, 4)
     p = prepare(L, background)
-    ref = MatchingCode(L, background=background, seed=0)
+    ref, plaqs = postselected_vacuum(L, background)
     for seed in range(3):
         sim = stim.TableauSimulator(seed=seed)
         sim.do(p.circuit)
-        assert sim.canonical_stabilizers() == ref.sim.canonical_stabilizers()
-    assert [str(a) for a in p.plaq_ops] == [str(b) for b in ref.plaq]
+        assert sim.canonical_stabilizers() == ref.canonical_stabilizers()
+    assert [str(a) for a in p.plaq_ops] == [str(b) for b in plaqs]
 
 
 def test_vacuum_reads_empty():
@@ -60,98 +96,38 @@ def test_vacuum_reads_empty():
     assert all((v == 1).all() for v in res.pairs().values())
     assert (res.plaquettes() == 1).all()
     assert p.measurements == tuple(("prepare", f) for f in range(48))
+    assert all(flow_holds(p.circuit, P) for P in p.pairs)
 
 
-# ------------------------------------------------- against MatchingCode
-def random_step(rng, c, p):
-    """The same random action on both engines; returns the new Program."""
-    L = c.lat
-    r = rng.random()
-    if r < 0.3:
-        e = rng.randrange(len(L.edges))
-        c.measure_link(e)
-        return measure_link(p, e)
-    if r < 0.4:
-        q, P = rng.randrange(L.n), rng.choice("XYZ")
-        c.apply_pauli(q, P)
-        return apply_pauli(p, q, P)
-    if r < 0.5:
-        e = rng.randrange(len(L.edges))
-        c.apply_link(e)
-        return apply_link(p, e)
-    if r < 0.6:
-        q = rng.randrange(L.n)
-        c.release(q)
-        return release(p, q)
-    if r < 0.85 and c.majoranas():
-        q = rng.choice(c.majoranas())
-        mv = c.majorana_moves(q)
-        if mv:
-            e = rng.choice(mv)[0]
-            c.move_majorana(q, e)
-            return move_majorana(p, q, e)
-    if r < 0.92:
-        q = rng.randrange(L.n)
-        e = rng.choice(c.fermion_moves(q))[0]
-        c.move_fermion(q, e)
-        return move_fermion(p, q, e)
-    fs = [f for f in range(len(L.faces)) if c.anyon_moves(f)]
-    if fs:
-        f = rng.choice(fs)
-        e = rng.choice(c.anyon_moves(f))[0]
-        c.move_anyon(f, e)
-        return move_anyon(p, f, e)
-    return p
-
-
+# ------------------------------------------------------------ bookkeeping
 @pytest.mark.parametrize("seed", range(4))
-def test_bookkeeping_matches_matching_code(seed):
-    """After every step: the same pairs and operators, the same moves on offer,
-    and every pair's value, evaluated on MatchingCode's own outcomes, equals
-    what MatchingCode reads off its quantum state."""
+def test_stim_confirms_every_pair_value(seed):
+    """As the program grows, Stim's flow checker agrees, sign included, that
+    each tracked pair's operator equals the parity of its records."""
     rng = random.Random(seed)
-    L = star(4, 4)
-    c, p = MatchingCode(L, seed=seed), prepare(L)
-    for _ in range(120):
-        p = random_step(rng, c, p)
-        assert sorted((P.a, P.b, P.kind, P.path, str(P.op)) for P in p.pairs) == \
-            sorted((P.a, P.b, P.kind, tuple(P.path), str(P.op)) for P in c.pairs.values())
-        outcomes = [s["outcome"] == -1 for s in c.log if s["action"] == "measure_link"]
-        bits = [False] * len(L.faces) + outcomes        # prep records never enter a pair's value
-        ref = c.values()
-        for pid, P in c.pairs.items():
-            mine = p.pair_at(P.a)
-            assert value_on(p, mine, bits) == ref["pairs"][pid]
-        assert plaquette_values(p) == ref["plaquettes"]
-        assert ints(L, majoranas(p)) == c.majoranas()
-        q = rng.randrange(L.n)
-        assert moves_as_ints(L, majorana_moves(p, q)) == c.majorana_moves(q)
-        assert moves_as_ints(L, fermion_moves(p, q)) == c.fermion_moves(q)
-        f = rng.randrange(len(L.faces))
-        assert moves_as_ints(L, anyon_moves(p, f)) == c.anyon_moves(f)
+    p = prepare(star(4, 4))
+    for step in range(50):
+        p = random_step(rng, p)
+        if step % 10 == 9:
+            circuit = p.circuit
+            assert all(flow_holds(circuit, P) for P in p.pairs)
 
 
 @pytest.mark.parametrize("seed", range(3))
-def test_stim_confirms_every_pair_value(seed):
-    """Stim's flow checker agrees, sign included, that each tracked pair's
-    operator equals the parity of its records."""
-    rng = random.Random(seed)
-    L = star(4, 4)
-    c, p = MatchingCode(L, seed=seed), prepare(L)
-    for _ in range(60):
-        p = random_step(rng, c, p)
-    circuit = p.circuit
-    assert all(flow_holds(circuit, P) for P in p.pairs)
+def test_plaquette_values_are_what_stim_measures(seed):
+    p = random_program(seed, 60)
+    values = plaquette_values(p)
+    for f, op in enumerate(p.plaq_ops):
+        p = readout(p, f"plaq{f}", op)
+    res = run(p, shots=50, seed=seed)
+    for f, v in enumerate(values):
+        assert (res[f"plaq{f}"] == v).all()
 
 
 def test_sampled_pairs_match_their_readouts():
     """Reading every pair out with a real measurement gives, in every shot,
     the value its records predicted."""
-    rng = random.Random(5)
-    L = star(4, 4)
-    c, p = MatchingCode(L, seed=5), prepare(L)
-    for _ in range(80):
-        p = random_step(rng, c, p)
+    p = random_program(5, 80)
     pairs = list(p.pairs)
     for k, P in enumerate(pairs):
         p = readout(p, f"pair{k}", P)
@@ -161,45 +137,10 @@ def test_sampled_pairs_match_their_readouts():
     assert len({tuple(res.value(P)) for P in pairs}) > 1          # some really are random
 
 
-# ------------------------------------------------------------- physics
-def load_example(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "examples" / f"{name}.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def test_braid():
-    b = load_example("braid")
-    out = {}
-    for name, stage in [("start", b.p), ("once", b.once), ("twice", b.twice)]:
-        res = run(readout(readout(stage, "A", b.piA), "B", b.piB), shots=1000, seed=3)
-        out[name] = ((res["A"] == 1).mean(), (res["B"] == 1).mean())
-    assert out["start"] == (1.0, 1.0)
-    assert all(0.4 < x < 0.6 for x in out["once"])
-    assert out["twice"] == (0.0, 0.0)
-
-
-def test_linking():
-    m = load_example("linking")
-    for linked in (False, True):
-        res = run(m.experiment(linked), shots=500, seed=4)
-        both_empty = (res["V"] == 1) & (res["H"] == 1)
-        assert both_empty.all() if not linked else not both_empty.any()
-
-
-def test_fermions_come_in_pairs():
-    rng = random.Random(9)
-    L = star(4, 4)
-    p = prepare(L)
-    stages = []
-    for _ in range(60):
-        p = measure_link(p, rng.randrange(len(L.edges)))
-        stages.append(p)
-    res = run(p, shots=300, seed=1)
-    for s in stages[::10]:
-        assert (res.summary(at=s)["fermions"] % 2 == 0).all()
-    assert res.summary()["fermions"].max() > 0
+def test_pairs_cover_every_vertex_once():
+    p = random_program(7, 100)
+    ends = sorted(q for P in p.pairs for q in (P.a, P.b))
+    assert ends == list(range(p.lattice.n))
 
 
 # ----------------------------------------------------------- the API itself
@@ -211,10 +152,8 @@ def test_addresses_in_and_out():
     p = move_majorana(p, Vertex(0, 1, "D.z"), link)
     assert dest in majoranas(p)
     p = create_anyons(p, Link(2, 2, "U.z"))
-    assert sorted(plaquette_values(p)).count(-1) == 2
-    f = next(Plaquette(*L.address(Plaquette, k).__dict__.values())
-             for k, v in enumerate(plaquette_values(p)) if v == -1)
-    assert anyon_moves(p, f)
+    anyons = [L.address(Plaquette, k) for k, v in enumerate(plaquette_values(p)) if v == -1]
+    assert len(anyons) == 2 and anyon_moves(p, anyons[0])
 
 
 def test_programs_are_values():
@@ -232,6 +171,7 @@ def test_programs_are_values():
     lambda p: split_dimer(p, Link(0, 0, "x")),                            # not a dimer
     lambda p: move_anyon(p, Plaquette(0, 0, "D"), Link(0, 0, "x")),       # no anyon there
     lambda p: create_majoranas(p, Link(0, 0, "z")),                       # already one dimer
+    lambda p: readout(readout(p, "a", p.pairs[0]), "a", p.pairs[1]),      # name taken
 ])
 def test_refused(bad):
     with pytest.raises(ValueError):
@@ -244,13 +184,9 @@ def test_wrong_kind_of_address():
 
 
 def test_from_circuit_round_trip():
-    rng = random.Random(3)
-    L = star(4, 4)
-    c, p = MatchingCode(L, seed=3), prepare(L)
-    for _ in range(80):
-        p = random_step(rng, c, p)
+    p = random_program(3, 80)
     p = readout(p, "first", p.pairs[0])
-    q = Program.from_circuit(L, p.circuit)
+    q = Program.from_circuit(p.lattice, stim.Circuit(str(p.circuit)))
     assert str(q.circuit) == str(p.circuit)
     assert q.measurements == p.measurements and q.readouts == p.readouts
     assert [(P.a, P.b, P.kind, P.path, str(P.op), P.flip, P.records) for P in q.pairs] == \
@@ -259,6 +195,7 @@ def test_from_circuit_round_trip():
 
 def test_fix_chance_is_drawn_when_building():
     L = star(4, 4)
+
     def build(seed):
         rng, p = random.Random(seed), split_dimer(prepare(L), Link(1, 1, "z"))
         for _ in range(6):
@@ -269,20 +206,34 @@ def test_fix_chance_is_drawn_when_building():
     assert len({build(s) for s in range(6)}) > 1
 
 
-def test_archaeo_executor():
-    pytest.importorskip("archaeo")
-    from majorana_lattice import archaeo_executor
-    L = star(4, 4)
-    p = split_dimer(prepare(L), Link(1, 1, "z"))
-    for _ in range(4):
-        v = majoranas(p)[0]
-        p = move_majorana(p, v, majorana_moves(p, v)[0][0])
-    p = measure_link(p, next(e for e in range(len(L.edges)) if not is_dimer(p, e)))
-    res = run(p, shots=200, executor=archaeo_executor())
-    assert res.shots == 200
-    # pairs whose value is fixed read the same through archaeo as through local Stim
-    local = run(p, shots=200, executor=stim_executor(1))
-    for P in p.pairs:
-        a, b = res.value(P), local.value(P)
-        if len(set(b)) == 1:
-            assert (a == b[0]).all()
+# ------------------------------------------------------------- executors
+def counting(executor, calls):
+    def execute(circuit, shots):
+        calls.append(shots)
+        return executor(circuit, shots)
+    return execute
+
+
+def test_a_program_carries_its_executor():
+    calls, other = [], []
+    p = prepare(star(4, 4), executor=counting(stim_executor(1), calls))
+    p = split_dimer(p, Link(1, 1, "z"))                           # inherited by new programs
+    run(p, shots=7)
+    assert calls == [7]
+    run(p, shots=3, executor=counting(stim_executor(2), other))   # run can override it
+    assert calls == [7] and other == [3]
+    run(p.with_executor(None), shots=5)                           # back to local Stim
+    assert calls == [7]
+
+
+def test_executor_survives_replay():
+    calls = []
+    p = split_dimer(prepare(star(4, 4)), Link(1, 1, "z"))
+    q = Program.from_circuit(p.lattice, p.circuit, executor=counting(stim_executor(1), calls))
+    run(q, shots=4)
+    assert calls == [4]
+
+
+def test_executor_must_return_every_record():
+    with pytest.raises(ValueError):
+        run(prepare(star(4, 4)), shots=2, executor=lambda c, s: np.zeros((s, 1), dtype=bool))

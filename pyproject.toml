@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "majorana-lattice"
-version = "0.1.0"
-description = "Matching codes, anyons and Majorana modes on trivalent lattices, simulated with Stim"
+version = "0.2.0"
+description = "Matching codes, anyons and Majorana modes on trivalent lattices, as Stim circuits"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

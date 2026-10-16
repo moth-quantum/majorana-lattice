@@ -2,8 +2,8 @@
 
 An executor is any function (stim.Circuit, shots) -> bool array of shape
 (shots, num_measurements), one row of measurement records per shot. Local
-Stim is the default; `archaeo_executor` sends the circuit to Moth Quantum's
-archaeo library instead.
+Stim is the default. A program can carry its own executor (prepare(...,
+executor=...) or p.with_executor(...)), and run can override it.
 
     res = run(p, shots=1000)
     res["v"]                  # a named readout, +1/-1 per shot
@@ -12,16 +12,12 @@ archaeo library instead.
 """
 from __future__ import annotations
 
-from typing import Callable
-
 import numpy as np
 import stim
 
 from . import queries as Q
 from .lattice import Vertex
-from .program import Pair, Program, present
-
-Executor = Callable[[stim.Circuit, int], np.ndarray]
+from .program import Executor, Pair, Program, present
 
 
 def stim_executor(seed: int | None = None) -> Executor:
@@ -31,33 +27,11 @@ def stim_executor(seed: int | None = None) -> Executor:
     return execute
 
 
-def archaeo_executor(sampler=None, **kwargs) -> Executor:
-    """Sample through archaeo (MothQ_interconnect). Pass a ready MothSampler,
-    or keyword arguments for one; the default target is "stim:stabilizer",
-    the one archaeo target that takes native Stim circuits. Shot order is
-    not kept, since archaeo returns counts."""
-    if sampler is None:
-        from archaeo import MothSampler
-        kwargs.setdefault("target", "stim:stabilizer")
-        sampler = MothSampler(circuit_format="stim", **kwargs)
-
-    def execute(circuit: stim.Circuit, shots: int) -> np.ndarray:
-        counts = sampler.run([circuit], shots=shots).result()[0].data.counts
-        m = circuit.num_measurements
-        rows = np.zeros((sum(counts.values()), m), dtype=bool)
-        r = 0
-        for bits, c in counts.items():
-            # archaeo puts record 0 rightmost, like a Qiskit counts key
-            rows[r:r + c] = np.frombuffer(bits[::-1].encode(), dtype=np.uint8)[:m] == ord("1")
-            r += c
-        return rows
-    return execute
-
-
 def run(p: Program, shots: int = 1000, executor: Executor | None = None,
         seed: int | None = None) -> Result:
-    """Execute the program and return its results."""
-    executor = executor or stim_executor(seed)
+    """Execute the program and return its results. Uses `executor` if given,
+    else the program's own, else local Stim (seeded with `seed`)."""
+    executor = executor or p.executor or stim_executor(seed)
     bits = np.asarray(executor(p.circuit, shots), dtype=bool)
     if bits.shape[1] != p.num_records:
         raise ValueError(f"executor returned {bits.shape[1]} records per shot, expected {p.num_records}")

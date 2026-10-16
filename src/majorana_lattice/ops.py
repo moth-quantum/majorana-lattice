@@ -29,8 +29,7 @@ import stim
 
 from . import queries as Q
 from .lattice import Lattice, Link, Plaquette, Vertex
-from .matching_code import _simplify, link_pauli
-from .program import Pair, Program, _mpp_targets, prepare, resolve
+from .program import Pair, Program, _mpp_targets, link_pauli, prepare, resolve, simplify_path
 
 _CTRL = {"X": "CX", "Y": "CY", "Z": "CZ"}
 
@@ -64,7 +63,7 @@ def measure_link(p: Program, link, fix: bool | float = False, rng: random.Random
         new_op = A.op * B.op * K          # commutes with K; real sign
         assert new_op.sign in (1, -1)
         kind = "string" if (A.kind == "string" and B.kind == "string") else "majorana"
-        path = tuple(_simplify(list(A.path_from(a)) + [e] + list(B.path_from(j))))
+        path = tuple(simplify_path(list(A.path_from(a)) + [e] + list(B.path_from(j))))
         known = A.records is not None and B.records is not None
         pairs[pi] = Pair(i, j, (e,), K, "string", False, frozenset({k}))
         pairs[pj] = Pair(a, b, path, new_op, kind, A.flip ^ B.flip,
@@ -225,12 +224,12 @@ def create_anyons(p: Program, link) -> Program:
 
 
 # --------------------------------------------------------------- replay
-def from_circuit(lattice: Lattice, circuit: stim.Circuit) -> Program:
+def from_circuit(lattice: Lattice, circuit: stim.Circuit, executor=None) -> Program:
     """Rebuild a Program from a circuit made by Program.circuit."""
     insts = list(circuit)
     if not insts or not insts[0].tag.startswith("prepare:"):
         raise ValueError("circuit does not start with a tagged vacuum preparation")
-    p = prepare(lattice, insts[0].tag.split(":")[1])
+    p = prepare(lattice, insts[0].tag.split(":")[1], executor)
     rest = insts[len([x for x in insts if x.tag.startswith("prepare:")]):]
     for inst in rest:
         kind, _, arg = inst.tag.partition(":")

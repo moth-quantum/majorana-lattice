@@ -21,11 +21,9 @@ included as presets.
 
 | Path | What it is |
 | --- | --- |
-| `src/majorana_lattice/` | The Python package: lattices, the circuit engine, and the interactive engine |
-| `js/engine.js` | The interactive engine in plain JavaScript, for browsers and games |
-| `explorer/` | An interactive page for exploring the board, and its build script |
+| `src/majorana_lattice/` | The Python package: lattices, programs, operations, queries and `run` |
 | `examples/` | Runnable experiments: the braid, and linked Majorana pairs |
-| `tests/` | Physics tests, and checks that the engines agree with each other and with Stim |
+| `tests/` | Physics tests, and checks of the bookkeeping against Stim |
 | `docs/conventions.md` | How to read the board, and the conventions that matter |
 
 ## Install
@@ -72,41 +70,17 @@ as they were at an earlier stage of the same program.
 `Program.from_circuit(lattice, circuit)` rebuilds a Program from its circuit,
 so saving the circuit text saves the whole run.
 
-### Running elsewhere
+### Executors
 
-`run` takes any executor: a function from a `stim.Circuit` and a shot count to
-measurement records. Local Stim is the default. To run through Moth Quantum's
-archaeo library ([MothQ_interconnect](https://github.com/moth-quantum/MothQ_interconnect),
-installed from its repository):
-
-```python
-from majorana_lattice import archaeo_executor
-res = run(p, shots=1000, executor=archaeo_executor())   # target "stim:stabilizer"
-```
-
-### The interactive engine
-
-`MatchingCode` simulates as it goes, one shot at a time: every measurement
-returns its outcome at once. The explorer and `js/engine.js` work this way.
-It is also the reference the circuit engine is tested against.
+`run` takes an executor: any function from a `stim.Circuit` and a shot count
+to a bool array of measurement records, one row per shot. Local Stim is the
+default. A program can carry its own, and every program built from it
+inherits it:
 
 ```python
-from majorana_lattice import MatchingCode, star
-
-code = MatchingCode(star(4, 4), seed=1)
-outcome = code.measure_link(0)             # +1, or -1 (a pair of fermions)
-record = code.record()                     # replay with MatchingCode.replay
-```
-
-## Explorer
-
-`explorer/explorer.html` is a self-contained page: click links to measure
-them, apply X, Y or Z errors to create e and m anyons, move Majoranas and
-watch fermions appear. It runs `js/engine.js` in the browser. Rebuild it after
-changing the engine or the template:
-
-```bash
-python explorer/build.py
+p = prepare(star(4, 4), executor=my_executor)   # or p.with_executor(my_executor)
+res = run(p)                                    # uses my_executor
+res = run(p, executor=stim_executor(seed=1))    # or override it for one call
 ```
 
 ## Tests
@@ -126,11 +100,9 @@ The physics tests check the paper's results on the star lattice, including:
 - two pairs from vacuum whose worldlines are linked both fuse to a fermion,
   and unlinked pairs both fuse back to vacuum, as Ising anyon theory predicts.
 
-The circuit engine is checked step by step against `MatchingCode`, and every
-pair value it reports is confirmed by Stim's own flow checker
-(`stim.Circuit.has_flow`). If Node.js is installed, `tests/test_crosscheck.py`
-also runs random sessions in the JavaScript engine and replays them in Stim,
-comparing every value after every step.
+The vacuum is checked against the postselected state on every preset and
+background, and every pair value the bookkeeping reports is confirmed by
+Stim's own flow checker (`stim.Circuit.has_flow`) and by real readouts.
 
 ## Citing
 
