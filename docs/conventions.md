@@ -20,6 +20,32 @@ are traced from the geometry.
 - A **string operator** is the product of link operators along a path. Two
   strings anticommute only when they share exactly one endpoint.
 
+## Addresses
+
+Preset lattices give every vertex, link and plaquette an address: a unit
+cell (i, j) in axial coordinates on the lattice vectors a1 = (√3, 0) and
+a2 = (√3/2, 3/2), plus a name within the cell. Each honeycomb cell has a
+down site D and an up site U one unit above it, joined by the cell's z link.
+On the star lattice, each site becomes a triangle:
+
+| Address | What it is |
+| --- | --- |
+| `Vertex(i, j, "D.x")` | corner of triangle D that the x link leaves from (`D.x D.y D.z U.x U.y U.z`) |
+| `Link(i, j, "z")` | D(i, j) to U(i, j); `"x"` is D(i, j) to U(i+1, j−1), `"y"` is D(i, j) to U(i, j−1) |
+| `Link(i, j, "D.z")` | the z edge of triangle D, between its x and y corners |
+| `Plaquette(i, j, "D")` | triangle D; `"U"` is triangle U |
+| `Plaquette(i, j, "hex")` | the large face centred at (i + 1/3, j + 1/3) |
+
+On the honeycomb the sites are plain `Vertex(i, j, "D")` and `"U"`; on the
+modified honeycomb only D becomes a triangle. A dimer is not a fixed element,
+so it is addressed by its link.
+
+Cells wrap round the torus. Because a2 leans right, (i, j + rows) is the same
+cell as (i + rows/2, j). `lat.index(address)` gives the vertex, edge or face
+id, `lat.address(kind, id)` goes back, `lat.coords(address)` gives an
+element's centre in axial coordinates and `lat.nearest(kind, (u, v))` finds
+the closest element of a kind.
+
 ## Pairs: dimers and Majoranas
 
 Every vertex is an endpoint of exactly one tracked pair. Each pair has two
