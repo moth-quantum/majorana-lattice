@@ -1,4 +1,8 @@
-"""Matching codes on trivalent lattices, simulated with Stim.
+"""The interactive engine: matching codes simulated with Stim as you go.
+
+Every action runs at once and returns its outcome, one shot at a time. The
+explorer and js/engine.js work this way, and it is the reference the circuit
+engine (program, ops, queries, run) is tested against.
 
 Every vertex holds one Majorana mode. Vertices are paired up; each pair is
 joined by a path of links, and the product of link operators along the path is

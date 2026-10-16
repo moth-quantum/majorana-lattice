@@ -70,7 +70,8 @@ to the qubits.
 Vacuum means **every dimer and every plaquette reads +1**, where each
 plaquette operator has sign +1 as defined above. The engine starts from
 |0...0> (which is +1 for every z dimer) and then postselects every plaquette
-onto +1. On hardware this would be a measurement followed by corrections.
+onto +1. On hardware this would be a measurement followed by corrections,
+which is exactly what the circuit engine does (see Programs and circuits).
 
 An earlier version measured each plaquette once and declared whatever came
 out to be "empty". That is fine for counting e and m anyons, but a Majorana
@@ -147,6 +148,51 @@ link whose faces differ in colour turns e into m and leaves a fermion on the
 dimer at the endpoint; that is available through `apply_pauli` but is not
 offered as a move. In vacuum the same-colour links are the z links.
 
+## Programs and circuits
+
+The circuit engine (`Program`, `ops`, `queries`, `run`) builds the same
+experiments as `MatchingCode`, but as a Stim circuit that runs at the end.
+That works because nothing it decides depends on a measurement outcome:
+which pairs a link measurement rewires, the moves on offer and the plaquette
+values all follow from the operations alone.
+
+**The vacuum** is prepared the way hardware would: reset every qubit (and
+rotate for an x or y background), measure every plaquette with `MPP`, then
+undo each -1 by applying that plaquette's destabilizer, conditioned on its
+record. The destabilizers come from a Stim tableau whose stabilizers are the
+dimers, the plaquettes, and the products of the background Pauli that commute
+with every plaquette. Those last ones must be pure products of the background
+Pauli, since the start state already fixes them. If one were a logical times
+a plaquette, the correction for that plaquette would flip the logical, and
+the state would differ from `MatchingCode`'s in the torus's logical qubits.
+The plaquette records stay in the circuit, labelled `("prepare", f)`.
+
+**Pair values are parities of records.** Each pair stores which measurement
+records its value is the parity of, plus a fixed sign. Measuring link (i, j)
+between pairs A and B gives the dimer (i, j) the new record k, and the pair
+(a, b) the records of A and B plus k. Applying a Pauli flips the sign of every
+pair and plaquette it anticommutes with. So `run` reports every pair's value
+in every shot without measuring it, and the tests check each one with
+`stim.Circuit.has_flow`.
+
+**The fix is feedforward.** A move's -1 outcome is undone by Paulis
+conditioned on that record (`CX rec[-1] ...`), which removes k from the two
+pairs it touches. With a fix chance below 1, the coin is tossed when the
+program is built (pass `rng` for repeatability), not when it runs.
+
+**Readouts** measure any operator at that point in the circuit. Tracked pairs
+and plaquettes that anticommute with it become undetermined afterwards. A
+readout of a pair from an earlier stage, as in the braid, is the usual use.
+
+**Instructions are tagged** (`MPP[link:12]`, `X[pauli]`, `CX[fix:7]`,
+`I[release:3]`, `MPP[readout:name]`), so `Program.from_circuit` can rebuild
+the bookkeeping from the circuit alone.
+
+**Executors.** `run` turns any executor's measurement records into values.
+archaeo returns Qiskit-style counts with record 0 as the rightmost
+character. `archaeo_executor` reverses them, and shot order is lost because
+counts are aggregated.
+
 ## Torus effects
 
 The torus has two logical qubits. If a Majorana pair's path winds round the
@@ -155,6 +201,10 @@ Experiments that need clean fusion results should stay within a patch; the
 tests and `examples/linking.py` do this by keeping moves inside a disc.
 
 ## Random outcomes and replay
+
+This section is about `MatchingCode`. The circuit engine has no random
+outcomes until it runs, and saving its circuit saves the whole run (see
+above).
 
 `measure_link(e, outcome=+1 or -1)` postselects a random outcome on that value;
 a deterministic outcome is never changed. Replay uses it to put each recorded

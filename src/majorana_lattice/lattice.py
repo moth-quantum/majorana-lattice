@@ -152,6 +152,15 @@ class Lattice:
             self._centre(kind, k)[0] - x0, self._centre(kind, k)[1] - y0)))
         return self.address(kind, best)
 
+    def distance(self, x, y) -> float:
+        """Distance on the torus between two addresses or axial points."""
+        def xy(z):
+            if isinstance(z, (Vertex, Link, Plaquette)):
+                return self._centre(type(z), self.index(z))
+            return to_xy(*z)
+        (x0, y0), (x1, y1) = xy(x), xy(y)
+        return math.hypot(*self._min_image(x1 - x0, y1 - y0))
+
     def _need_cells(self) -> tuple[int, int]:
         if self.cells is None:
             raise ValueError(f"lattice {self.name!r} has no cell addresses")

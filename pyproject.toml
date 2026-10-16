@@ -11,7 +11,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Moth Quantum" }]
 requires-python = ">=3.10"
-dependencies = ["stim>=1.13"]
+dependencies = ["stim>=1.15", "numpy"]
 keywords = ["quantum", "stabilizer codes", "anyons", "Majorana", "stim", "quantum games"]
 classifiers = [
   "Programming Language :: Python :: 3",

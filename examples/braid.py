@@ -7,72 +7,77 @@ exchange moves one Majorana to a temporary spot, moves the other into its
 place, then moves the first into the other's old place. One exchange puts
 both parities into superposition; two flip them: R^2 |kA,kB> = |-kA,-kB>.
 
+The whole experiment is built as a circuit first and run at the end, once
+per stage, with the two original parities read out.
+
     python examples/braid.py
 """
-from majorana_lattice import MatchingCode, star
+from majorana_lattice import (Vertex, dimers, majorana_moves, prepare, readout,
+                              route_majorana, run, split_dimer, star, to_axial, to_xy)
 
 L = star(10, 10)
-W, H = L.period
-CX, CY = W / 2, H / 2
+C = (5.0, 5.0)                                   # the centre, in axial coordinates
+VERTICES = [L.address(Vertex, q) for q in range(L.n)]
 
 
-def dist2(q, x, y):
-    px, py = L.positions[q]
-    return (px - x) ** 2 + (py - y) ** 2
+def shifted(uv, dx):
+    """The point dx to the right of uv (Cartesian units)."""
+    x, y = to_xy(*uv)
+    return to_axial(x + dx, y)
 
 
-def nearest(x, y, exclude=()):
-    return min((q for q in range(L.n) if q not in exclude), key=lambda q: dist2(q, x, y))
-
-
-def go_near(c, p, x, y, avoid):
-    """Move the Majorana at p to the closest reachable vertex near (x, y)."""
-    for t in sorted(range(L.n), key=lambda q: dist2(q, x, y))[:40]:
+def go_near(p, v, uv, avoid):
+    """Move the Majorana at v to the closest reachable vertex near uv."""
+    for t in sorted(VERTICES, key=lambda t: L.distance(t, uv))[:40]:
         if t in avoid:
             continue
         try:
-            return c.route_majorana(p, t, avoid=avoid)[-1]
+            return route_majorana(p, v, t, avoid=avoid), t
         except ValueError:
             continue
     raise RuntimeError("no reachable vertex near the target")
 
 
-c = MatchingCode(L, seed=3)
-peek = c.sim.peek_observable_expectation
-label = {1: "no fermion", -1: "fermion", 0: "superposition"}
+p = prepare(L)
 
 # two neighbouring dimers near the centre, split into Majorana pairs
-A = c.pairs[c.owner[nearest(CX - 0.6, CY)]]
-B = c.pairs[c.owner[nearest(CX + 0.6, CY, exclude={A.a, A.b})]]
-a1, a2 = sorted((A.a, A.b), key=lambda q: L.positions[q][0])   # a2 is the inner end
-b1, b2 = sorted((B.a, B.b), key=lambda q: L.positions[q][0])   # b1 is the inner end
-c.release(a1)
-c.release(b1)
+A = min(dimers(p), key=lambda l: L.distance(l, shifted(C, -0.6)))
+B = min((d for d in dimers(p) if d != A), key=lambda l: L.distance(l, shifted(C, 0.6)))
+x = lambda v: to_xy(*L.coords(v))[0]
+ends = lambda link: sorted((L.address(Vertex, L.edges[L.index(link)].u),
+                            L.address(Vertex, L.edges[L.index(link)].v)), key=x)
+a1, a2 = ends(A)                                 # a2 is the inner end
+b1, b2 = ends(B)                                 # b1 is the inner end
+p = split_dimer(split_dimer(p, A), B)
 
 # move the outer ends far out to the left and right
-far = {q for q in range(L.n) if dist2(q, CX, CY) > 5.0 ** 2}
-a1 = go_near(c, a1, CX - 4.0, CY, {a2, b1, b2} | far)
-b2 = go_near(c, b2, CX + 4.0, CY, {a1, a2, b1} | far)
+far = {v for v in VERTICES if L.distance(v, C) > 5.0}
+p, a1 = go_near(p, a1, shifted(C, -4.0), {a2, b1, b2} | far)
+p, b2 = go_near(p, b2, shifted(C, 4.0), {a1, a2, b1} | far)
 
-# parity operators of the two pairs, as they stand now
-piA = c.pairs[c.owner[a1]].op.copy()
-piB = c.pairs[c.owner[b2]].op.copy()
+# the parity operators of the two pairs, as they stand now
+piA, piB = p.pair_at(a1), p.pair_at(b2)
 
 # the exchange stays within a small disc round the two inner Majoranas
-mx, my = [(L.positions[a2][k] + L.positions[b1][k]) / 2 for k in (0, 1)]
-outside = {q for q in range(L.n) if dist2(q, mx, my) > 3.0 ** 2}
+mid = to_axial(*[(to_xy(*L.coords(a2))[k] + to_xy(*L.coords(b1))[k]) / 2 for k in (0, 1)])
+outside = {v for v in VERTICES if L.distance(v, mid) > 3.0}
 
 
-def exchange(p, q):
+def exchange(p, u, w):
     others = {a1, b2} | outside
-    t = next(t for _, t in c.majorana_moves(p) if t not in others | {q})
-    t = c.route_majorana(p, t, avoid=others | {q})[-1]
-    c.route_majorana(q, p, avoid=others | {t})
-    c.route_majorana(t, q, avoid=others | {p})
+    t = next(t for _, t in majorana_moves(p, u) if t not in others | {w})
+    p = route_majorana(p, u, t, avoid=others | {w})
+    p = route_majorana(p, w, u, avoid=others | {t})
+    return route_majorana(p, t, w, avoid=others | {u})
 
 
-print("start:          pair A", label[peek(piA)], "| pair B", label[peek(piB)])
-exchange(a2, b1)
-print("one exchange:   pair A", label[peek(piA)], "| pair B", label[peek(piB)])
-exchange(a2, b1)
-print("two exchanges:  pair A", label[peek(piA)], "| pair B", label[peek(piB)])
+def parities(stage, shots=2000):
+    res = run(readout(readout(stage, "A", piA), "B", piB), shots=shots, seed=1)
+    return [f"{(res[k] == 1).mean():.0%} empty" for k in "AB"]
+
+
+once = exchange(p, a2, b1)
+twice = exchange(once, a2, b1)
+for name, stage in [("start", p), ("one exchange", once), ("two exchanges", twice)]:
+    a, b = parities(stage)
+    print(f"{name + ':':15} pair A {a:11} | pair B {b}")

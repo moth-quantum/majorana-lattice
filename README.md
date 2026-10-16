@@ -1,7 +1,7 @@
 # majorana-lattice
 
-Matching codes, anyons and Majorana modes on trivalent lattices, simulated
-exactly with [Stim](https://github.com/quantumlib/Stim).
+Matching codes, anyons and Majorana modes on trivalent lattices, written as
+[Stim](https://github.com/quantumlib/Stim) circuits.
 
 This package implements the matching codes of J. R. Wootton,
 [arXiv:1501.07779](https://arxiv.org/abs/1501.07779). Every vertex of a
@@ -21,11 +21,11 @@ included as presets.
 
 | Path | What it is |
 | --- | --- |
-| `src/majorana_lattice/` | The Python package: lattices and the Stim engine |
-| `js/engine.js` | The same engine in plain JavaScript, for browsers and games |
+| `src/majorana_lattice/` | The Python package: lattices, the circuit engine, and the interactive engine |
+| `js/engine.js` | The interactive engine in plain JavaScript, for browsers and games |
 | `explorer/` | An interactive page for exploring the board, and its build script |
 | `examples/` | Runnable experiments: the braid, and linked Majorana pairs |
-| `tests/` | Physics tests, and a check that the JavaScript engine matches Stim |
+| `tests/` | Physics tests, and checks that the engines agree with each other and with Stim |
 | `docs/conventions.md` | How to read the board, and the conventions that matter |
 
 ## Install
@@ -38,26 +38,64 @@ or, from a clone, `pip install -e ".[test]"`.
 
 ## Quick start
 
+An experiment is built as a `Program` (a Stim circuit plus the bookkeeping
+needed to decide what to do next) and nothing runs until `run`. Every
+operation takes a Program and returns a new one, so you can branch from any
+point. Elements are addressed by unit cell, in axial coordinates on the
+lattice vectors, and a name within the cell (see `docs/conventions.md`).
+
+```python
+from majorana_lattice import (Link, Vertex, majorana_moves, majoranas, move_majorana,
+                              prepare, route_majorana, run, split_dimer, star)
+
+p = prepare(star(4, 4))                   # vacuum: every dimer and plaquette +1
+p = split_dimer(p, Link(0, 1, "z"))       # two Majoranas, no gates applied
+a, b = majoranas(p)                       # Vertex(0, 1, "D.z"), Vertex(0, 1, "U.z")
+
+link, dest = majorana_moves(p, a)[0]      # moves on offer: [(link, destination)]
+p = move_majorana(p, a, link)             # measures the link, fixes a -1 by feedforward
+p = route_majorana(p, dest, Vertex(2, 3, "D.x"))
+
+p.circuit                                 # a plain stim.Circuit
+res = run(p, shots=1000)                  # the only step that executes anything
+res.pairs()                               # every pair's value, per shot
+res.summary()                             # fermions, e and m, per shot
+```
+
+A pair's value is never measured to report it. The bookkeeping knows which
+measurement records it is the parity of, so `run` computes it per shot. To
+measure something else, such as a pair's parity from an earlier stage, add
+`readout(p, "name", operator)` and read `res["name"]`. `fuse(p, link, "name")`
+names a fusion outcome the same way. `res.summary(at=earlier)` gives values
+as they were at an earlier stage of the same program.
+
+`Program.from_circuit(lattice, circuit)` rebuilds a Program from its circuit,
+so saving the circuit text saves the whole run.
+
+### Running elsewhere
+
+`run` takes any executor: a function from a `stim.Circuit` and a shot count to
+measurement records. Local Stim is the default. To run through Moth Quantum's
+archaeo library ([MothQ_interconnect](https://github.com/moth-quantum/MothQ_interconnect),
+installed from its repository):
+
+```python
+from majorana_lattice import archaeo_executor
+res = run(p, shots=1000, executor=archaeo_executor())   # target "stim:stabilizer"
+```
+
+### The interactive engine
+
+`MatchingCode` simulates as it goes, one shot at a time: every measurement
+returns its outcome at once. The explorer and `js/engine.js` work this way.
+It is also the reference the circuit engine is tested against.
+
 ```python
 from majorana_lattice import MatchingCode, star
 
-code = MatchingCode(star(4, 4), seed=1)   # z dimers and plaquettes all empty
-
-# Measure a link between two dimers: a new dimer forms, and a pair of
-# Majoranas appears at the two far ends.
-edge = next(e for e, E in enumerate(code.lat.edges) if E.label == "x")
-outcome = code.measure_link(edge)          # +1, or -1 (a pair of fermions)
-print(code.majoranas())                    # the two new Majoranas
-print(code.summary())                      # counts of fermions, e, m, Majoranas
-
-# Move a Majorana: measures the link and fixes a -1 outcome.
-m = code.majoranas()[0]
-link, destination = code.majorana_moves(m)[0]
-code.move_majorana(m, link)
-
-# Every run is a log you can save and replay exactly.
-record = code.record()
-same = MatchingCode.replay(code.lat, record)
+code = MatchingCode(star(4, 4), seed=1)
+outcome = code.measure_link(0)             # +1, or -1 (a pair of fermions)
+record = code.record()                     # replay with MatchingCode.replay
 ```
 
 ## Explorer
@@ -88,9 +126,11 @@ The physics tests check the paper's results on the star lattice, including:
 - two pairs from vacuum whose worldlines are linked both fuse to a fermion,
   and unlinked pairs both fuse back to vacuum, as Ising anyon theory predicts.
 
-If Node.js is installed, `tests/test_crosscheck.py` also runs random sessions
-in the JavaScript engine and replays them in Stim, comparing every value
-after every step.
+The circuit engine is checked step by step against `MatchingCode`, and every
+pair value it reports is confirmed by Stim's own flow checker
+(`stim.Circuit.has_flow`). If Node.js is installed, `tests/test_crosscheck.py`
+also runs random sessions in the JavaScript engine and replays them in Stim,
+comparing every value after every step.
 
 ## Citing
 

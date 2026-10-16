@@ -180,10 +180,11 @@ def test_route_independence():
 
 
 
-def _load_example(name):
+def _load_reference(name):
+    """The MatchingCode version of an experiment, kept under tests/."""
     import importlib.util
     from pathlib import Path
-    path = Path(__file__).resolve().parent.parent / "examples" / f"{name}.py"
+    path = Path(__file__).resolve().parent / f"{name}_reference.py"
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -193,7 +194,7 @@ def _load_example(name):
 def test_linked_pairs():
     """Two pairs from vacuum. Linked (open V, open H, close V, close H): Ising
     theory says both fuse to a fermion. Unlinked: both fuse to vacuum."""
-    ex = _load_example("linking")
+    ex = _load_reference("linking")
     linked = [ex.run(s, True) for s in range(6)]
     unlinked = [ex.run(s, False) for s in range(6)]
     check("linked pairs both fuse to a fermion", all(r == (-1, -1) for r in linked))
