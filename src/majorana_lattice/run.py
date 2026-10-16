@@ -1,9 +1,8 @@
 """Running a Program: the only place anything is executed.
 
 An executor is any function (stim.Circuit, shots) -> bool array of shape
-(shots, num_measurements), one row of measurement records per shot. Local
-Stim is the default. A program can carry its own executor (prepare(...,
-executor=...) or p.with_executor(...)), and run can override it.
+(shots, num_measurements), one row of measurement records per shot, passed
+to `run`. Local Stim is the default.
 
     res = run(p, shots=1000)
     res["v"]                  # a named readout, +1/-1 per shot
@@ -12,12 +11,16 @@ executor=...) or p.with_executor(...)), and run can override it.
 """
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 import stim
 
 from . import queries as Q
 from .lattice import Vertex
-from .program import Executor, Pair, Program, present
+from .program import Pair, Program, present
+
+Executor = Callable[[stim.Circuit, int], np.ndarray]
 
 
 def stim_executor(seed: int | None = None) -> Executor:
@@ -29,9 +32,9 @@ def stim_executor(seed: int | None = None) -> Executor:
 
 def run(p: Program, shots: int = 1000, executor: Executor | None = None,
         seed: int | None = None) -> Result:
-    """Execute the program and return its results. Uses `executor` if given,
-    else the program's own, else local Stim (seeded with `seed`)."""
-    executor = executor or p.executor or stim_executor(seed)
+    """Execute the program and return its results, with `executor` or, by
+    default, local Stim seeded with `seed`."""
+    executor = executor or stim_executor(seed)
     bits = np.asarray(executor(p.circuit, shots), dtype=bool)
     if bits.shape[1] != p.num_records:
         raise ValueError(f"executor returned {bits.shape[1]} records per shot, expected {p.num_records}")

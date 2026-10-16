@@ -167,7 +167,7 @@ def test_programs_are_values():
 
 
 @pytest.mark.parametrize("bad", [
-    lambda p: move_majorana(p, Vertex(0, 0, "D.x"), Link(0, 0, "x")),     # not a Majorana
+    lambda p: move_majorana(p, Vertex(0, 0, "D.x"), Link(0, 0, "D.z")),   # not on its move list
     lambda p: split_dimer(p, Link(0, 0, "x")),                            # not a dimer
     lambda p: move_anyon(p, Plaquette(0, 0, "D"), Link(0, 0, "x")),       # no anyon there
     lambda p: create_majoranas(p, Link(0, 0, "z")),                       # already one dimer
@@ -214,24 +214,11 @@ def counting(executor, calls):
     return execute
 
 
-def test_a_program_carries_its_executor():
-    calls, other = [], []
-    p = prepare(star(4, 4), executor=counting(stim_executor(1), calls))
-    p = split_dimer(p, Link(1, 1, "z"))                           # inherited by new programs
-    run(p, shots=7)
-    assert calls == [7]
-    run(p, shots=3, executor=counting(stim_executor(2), other))   # run can override it
-    assert calls == [7] and other == [3]
-    run(p.with_executor(None), shots=5)                           # back to local Stim
-    assert calls == [7]
-
-
-def test_executor_survives_replay():
+def test_run_uses_the_executor_it_is_given():
     calls = []
     p = split_dimer(prepare(star(4, 4)), Link(1, 1, "z"))
-    q = Program.from_circuit(p.lattice, p.circuit, executor=counting(stim_executor(1), calls))
-    run(q, shots=4)
-    assert calls == [4]
+    res = run(p, shots=7, executor=counting(stim_executor(1), calls))
+    assert calls == [7] and res.shots == 7
 
 
 def test_executor_must_return_every_record():

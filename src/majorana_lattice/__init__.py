@@ -9,13 +9,13 @@ circuits. Build a program without running it, then run it:
 """
 from .lattice import (Edge, Face, Lattice, Link, Plaquette, PRESETS, Vertex, honeycomb,
                       modified_honeycomb, star, to_axial, to_xy)
-from .program import Executor, Pair, Program, link_pauli, prepare
+from .program import Pair, Program, link_pauli, prepare
 from .ops import (apply_link, apply_pauli, create_anyons, create_majoranas, from_circuit, fuse,
                   measure_label, measure_link, move_anyon, move_fermion, move_majorana, readout,
                   release, route_majorana, split_dimer)
 from .queries import (anyon_moves, colouring, dimers, fermion_moves, is_dimer, is_majorana,
                       majorana_moves, majoranas, partner, plan_route, plaquette_values)
-from .run import Result, run, stim_executor
+from .run import Executor, Result, run, stim_executor
 
 __all__ = ["Edge", "Face", "Lattice", "Link", "Plaquette", "PRESETS", "Vertex", "honeycomb",
            "modified_honeycomb", "star", "to_axial", "to_xy",

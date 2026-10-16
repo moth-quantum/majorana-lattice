@@ -211,7 +211,5 @@ Instructions are tagged (`MPP[link:12]`, `X[pauli]`, `CX[fix:7]`,
 circuit alone. Saving the circuit text saves the whole program.
 
 `run` takes an executor: any function from a `stim.Circuit` and a shot count
-to a bool array of measurement records, one row per shot. Local Stim is the
-default. A program can carry its own executor (`prepare(..., executor=...)`
-or `p.with_executor(...)`), which every program built from it inherits, and
-`run(p, executor=...)` overrides it for one call.
+to a bool array of measurement records, one row per shot, passed as
+`run(p, executor=...)`. Local Stim is the default.

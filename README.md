@@ -74,13 +74,10 @@ so saving the circuit text saves the whole run.
 
 `run` takes an executor: any function from a `stim.Circuit` and a shot count
 to a bool array of measurement records, one row per shot. Local Stim is the
-default. A program can carry its own, and every program built from it
-inherits it:
+default.
 
 ```python
-p = prepare(star(4, 4), executor=my_executor)   # or p.with_executor(my_executor)
-res = run(p)                                    # uses my_executor
-res = run(p, executor=stim_executor(seed=1))    # or override it for one call
+res = run(p, shots=1000, executor=my_executor)
 ```
 
 ## Tests

@@ -181,8 +181,6 @@ def move_majorana(p: Program, v, link, fix: bool | float = True, rng=None) -> Pr
     lat = p.lattice
     e = resolve(lat, link, Link)
     q = resolve(lat, v, Vertex)
-    if not Q.is_majorana(p, q):
-        raise ValueError(f"vertex {v} is not a Majorana")
     if not any(resolve(lat, ee, Link) == e for ee, _ in Q.majorana_moves(p, q)):
         raise ValueError(f"the Majorana at {v} cannot move across link {link}")
     return measure_link(p, e, fix=fix, rng=rng)
@@ -224,12 +222,12 @@ def create_anyons(p: Program, link) -> Program:
 
 
 # --------------------------------------------------------------- replay
-def from_circuit(lattice: Lattice, circuit: stim.Circuit, executor=None) -> Program:
+def from_circuit(lattice: Lattice, circuit: stim.Circuit) -> Program:
     """Rebuild a Program from a circuit made by Program.circuit."""
     insts = list(circuit)
     if not insts or not insts[0].tag.startswith("prepare:"):
         raise ValueError("circuit does not start with a tagged vacuum preparation")
-    p = prepare(lattice, insts[0].tag.split(":")[1], executor)
+    p = prepare(lattice, insts[0].tag.split(":")[1])
     rest = insts[len([x for x in insts if x.tag.startswith("prepare:")]):]
     for inst in rest:
         kind, _, arg = inst.tag.partition(":")

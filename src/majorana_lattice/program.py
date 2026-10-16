@@ -28,14 +28,10 @@ postselection is needed, and the plaquette records are kept as
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Callable
 
-import numpy as np
 import stim
 
 from .lattice import Lattice, Vertex
-
-Executor = Callable[[stim.Circuit, int], np.ndarray]
 
 
 def link_pauli(lat: Lattice, e: int) -> stim.PauliString:
@@ -93,7 +89,6 @@ class Program:
     plaq_flips: tuple[bool | None, ...]         # None: not determined
     measurements: tuple[tuple, ...]             # per record: ("link", e) or ("readout", name)
     readouts: dict[str, int] = field(default_factory=dict)
-    executor: Executor | None = None            # what run() uses; None means local Stim
 
     @property
     def circuit(self) -> stim.Circuit:
@@ -111,10 +106,6 @@ class Program:
         """The pair holding vertex v."""
         return self.pairs[self.owner[resolve(self.lattice, v, Vertex)]]
 
-    def with_executor(self, executor: Executor | None) -> Program:
-        """The same program, run by `executor` (None: local Stim)."""
-        return replace(self, executor=executor)
-
     def extends(self, other: Program) -> bool:
         """True if this program starts with everything `other` did."""
         n = len(other.instructions)
@@ -122,20 +113,17 @@ class Program:
                 and len(self.instructions) >= n and self.instructions[:n] == other.instructions)
 
     @classmethod
-    def from_circuit(cls, lattice: Lattice, circuit: stim.Circuit,
-                     executor: Executor | None = None) -> Program:
+    def from_circuit(cls, lattice: Lattice, circuit: stim.Circuit) -> Program:
         """Rebuild a Program from its circuit (as made by Program.circuit)."""
         from .ops import from_circuit
-        return from_circuit(lattice, circuit, executor)
+        return from_circuit(lattice, circuit)
 
     def _evolve(self, **kw) -> Program:
         return replace(self, **kw)
 
 
-def prepare(lattice: Lattice, background: str = "z", executor: Executor | None = None) -> Program:
-    """The vacuum: every `background` link a dimer, every dimer and plaquette +1.
-    `executor` is what `run` will use for this program and everything built
-    from it (default: local Stim)."""
+def prepare(lattice: Lattice, background: str = "z") -> Program:
+    """The vacuum: every `background` link a dimer, every dimer and plaquette +1."""
     prep, plaq_ops = _vacuum(lattice, background)
     pairs, owner, seen = [], [-1] * lattice.n, set()
     for q in range(lattice.n):
@@ -148,7 +136,7 @@ def prepare(lattice: Lattice, background: str = "z", executor: Executor | None =
         pairs.append(Pair(E.u, E.v, (e,), link_pauli(lattice, e)))
     return Program(lattice, background, prep, (), tuple(pairs), tuple(owner),
                    plaq_ops, (False,) * len(plaq_ops),
-                   tuple(("prepare", f) for f in range(len(plaq_ops))), {}, executor)
+                   tuple(("prepare", f) for f in range(len(plaq_ops))))
 
 
 def _vacuum(lattice: Lattice, background: str):
@@ -259,4 +247,4 @@ def present(lattice: Lattice, kind: type, k: int):
     return lattice.address(kind, k) if lattice.cells is not None else k
 
 
-__all__ = ["Executor", "Pair", "Program", "link_pauli", "prepare"]
+__all__ = ["Pair", "Program", "link_pauli", "prepare"]
