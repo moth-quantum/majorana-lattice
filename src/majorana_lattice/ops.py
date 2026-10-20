@@ -3,7 +3,8 @@
 Targets are addresses (Vertex, Link, Plaquette) or plain indices. Nothing is
 executed: each operation appends Stim instructions and updates the
 bookkeeping. Instructions carry tags (MPP[link:12], X[pauli], ...) so that
-`from_circuit` can rebuild the Program from its circuit alone.
+`from_circuit` can rebuild the Program from its circuit alone (and
+`from_instructions` from the instructions after the vacuum prep).
 
   measure_link(p, link)        measure a link operator; rewires the pairing
   apply_link(p, link)          apply a link operator as a unitary
@@ -229,7 +230,23 @@ def from_circuit(lattice: Lattice, circuit: stim.Circuit) -> Program:
         raise ValueError("circuit does not start with a tagged vacuum preparation")
     p = prepare(lattice, insts[0].tag.split(":")[1])
     rest = insts[len([x for x in insts if x.tag.startswith("prepare:")]):]
-    for inst in rest:
+    return _replay(p, rest)
+
+
+def from_instructions(lattice: Lattice, background: str, circuit: stim.Circuit) -> Program:
+    """Rebuild a Program from the instructions after its vacuum prep (as made
+    by Program.instructions_circuit): prepare the vacuum for this lattice and
+    background, then replay them. Same result as from_circuit on the full
+    circuit."""
+    insts = list(circuit)
+    if any(x.tag.startswith("prepare:") for x in insts):
+        raise ValueError("circuit contains the vacuum preparation; use from_circuit for a full circuit")
+    return _replay(prepare(lattice, background), insts)
+
+
+def _replay(p: Program, insts) -> Program:
+    """Apply tagged instructions (everything after the vacuum prep) to p."""
+    for inst in insts:
         kind, _, arg = inst.tag.partition(":")
         groups = inst.target_groups()
         if kind == "link" and inst.name == "MPP":
@@ -248,7 +265,7 @@ def from_circuit(lattice: Lattice, circuit: stim.Circuit) -> Program:
             p = release(p, int(arg))
         elif kind == "readout":
             for g in groups:
-                op = stim.PauliString(lattice.n)
+                op = stim.PauliString(p.lattice.n)
                 for t in g:
                     op[t.value] = t.pauli_type
                 if g[0].is_inverted_result_target:

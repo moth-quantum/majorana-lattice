@@ -68,7 +68,10 @@ names a fusion outcome the same way. `res.summary(at=earlier)` gives values
 as they were at an earlier stage of the same program.
 
 `Program.from_circuit(lattice, circuit)` rebuilds a Program from its circuit,
-so saving the circuit text saves the whole run.
+so saving the circuit text saves the whole run. The vacuum prep depends only
+on the lattice and the background, so a store can keep just
+`p.instructions_circuit()` and rebuild with
+`Program.from_instructions(lattice, background, circuit)`.
 
 ### Executors
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+import numpy as np
 import stim
 
 from .lattice import Lattice, Vertex
@@ -98,6 +99,15 @@ class Program:
             c.append(inst)
         return c
 
+    def instructions_circuit(self) -> stim.Circuit:
+        """Only the instructions after the vacuum prep. With the lattice and
+        the background, that is everything needed to rebuild the program:
+        Program.from_instructions(lattice, background, circuit)."""
+        c = stim.Circuit()
+        for inst in self.instructions:
+            c.append(inst)
+        return c
+
     @property
     def num_records(self) -> int:
         return len(self.measurements)
@@ -117,6 +127,13 @@ class Program:
         """Rebuild a Program from its circuit (as made by Program.circuit)."""
         from .ops import from_circuit
         return from_circuit(lattice, circuit)
+
+    @classmethod
+    def from_instructions(cls, lattice: Lattice, background: str, circuit: stim.Circuit) -> Program:
+        """Rebuild a Program from the instructions after its vacuum prep (as
+        made by instructions_circuit), preparing the vacuum afresh."""
+        from .ops import from_instructions
+        return from_instructions(lattice, background, circuit)
 
     def _evolve(self, **kw) -> Program:
         return replace(self, **kw)
@@ -161,23 +178,21 @@ def _vacuum(lattice: Lattice, background: str):
             p[q] = P
         plaqs.append(p)
     dimers = [link_pauli(lattice, e) for e, E in enumerate(lattice.edges) if E.label == background]
-    # products of B that commute with every plaquette: measure, from |0..0>,
-    # an X on each qubit where the plaquette anticommutes with B; the pure-Z
-    # stabilizers left over are exactly those products, with Z standing for B
-    sim = stim.TableauSimulator()
-    for p in plaqs:
-        xp = stim.PauliString(n)
+    # Products of B that commute with every plaquette: the B-strings z with
+    # A z = 0 over GF(2), where A marks each qubit at which a plaquette
+    # anticommutes with B. They are listed as the reduced row echelon basis of
+    # that nullspace, pivots in qubit order, which is exactly the pure-Z part
+    # of Stim's canonical stabilizers after measuring those anticommuting parts
+    # from |0..0> (how this used to be computed, far more slowly). The list
+    # decides which stabilizers the tableau keeps, so it must not change.
+    A = np.zeros((len(plaqs), n), dtype=np.uint8)
+    for f, p in enumerate(plaqs):
         for q in p.pauli_indices():
             if "_XYZ"[p[q]] != B:
-                xp[q] = "X"
-        sim.measure_observable(xp)
-    logicals = []
-    for g in sim.canonical_stabilizers():
-        if not g.pauli_indices("XY"):
-            b = stim.PauliString(n)
-            for q in g.pauli_indices():
-                b[q] = B
-            logicals.append(b)
+                A[f, q] = 1
+    xs, zs = {"X": (1, 0), "Y": (1, 1), "Z": (0, 1)}[B]
+    logicals = [stim.PauliString.from_numpy(xs=row.astype(bool) & bool(xs), zs=row.astype(bool) & bool(zs))
+                for row in _gf2_rref(_gf2_nullspace(A))]
     T = stim.Tableau.from_stabilizers(dimers + plaqs + logicals, allow_redundant=True)
     row = {str(T.z_output(k)): k for k in range(n)}
 
@@ -198,8 +213,9 @@ def _vacuum(lattice: Lattice, background: str):
         for P in "XYZ":
             qs = C.pauli_indices(P)
             if qs:
-                lines.append(f"C{P}[prepare:{background}:{f}] "
-                             + " ".join(f"rec[{f - F}] {q}" for q in qs))
+                rec = f"rec[{f - F}]"
+                lines.append(f"C{P}[prepare:{background}:{f}] {rec} "
+                             + f" {rec} ".join(map(str, qs)))
     prep = stim.Circuit("\n".join(lines))
     # Every tableau stabilizer ends at +1. A plaquette fixed by the others is
     # +/- a product of them, so it may end at -1: flip its sign so vacuum
@@ -217,6 +233,44 @@ def _vacuum(lattice: Lattice, background: str):
         signed.append(prod)
     cache[background] = (prep, tuple(signed))
     return cache[background]
+
+
+def _gf2_rref(M: np.ndarray) -> np.ndarray:
+    """Reduced row echelon form of a 0/1 matrix over GF(2), pivots in column
+    order, zero rows dropped. Rows are bit-packed while eliminating."""
+    rows, n = M.shape
+    P = np.packbits(M.astype(np.uint8), axis=1)
+    r = 0
+    for c in range(n):
+        if r == rows:
+            break
+        byte, bit = c >> 3, 7 - (c & 7)
+        col = (P[:, byte] >> bit) & 1
+        below = np.flatnonzero(col[r:])
+        if below.size == 0:
+            continue
+        k = r + below[0]
+        if k != r:
+            P[[r, k]] = P[[k, r]]
+            col[[r, k]] = col[[k, r]]
+        hit = np.flatnonzero(col)
+        hit = hit[hit != r]
+        P[hit] ^= P[r]
+        r += 1
+    return np.unpackbits(P[:r], axis=1, count=n)
+
+
+def _gf2_nullspace(A: np.ndarray) -> np.ndarray:
+    """A basis (as rows) of {z : A z = 0} over GF(2)."""
+    n = A.shape[1]
+    R = _gf2_rref(A)
+    pivots = [int(np.flatnonzero(row)[0]) for row in R]
+    free = [c for c in range(n) if c not in set(pivots)]
+    N = np.zeros((len(free), n), dtype=np.uint8)
+    N[np.arange(len(free)), free] = 1
+    if pivots:
+        N[:, pivots] = R[:, free].T
+    return N
 
 
 def _mpp_targets(op: stim.PauliString) -> list:
