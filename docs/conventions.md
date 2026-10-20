@@ -113,12 +113,25 @@ reports each pair's value in every shot without measuring it. The tests
 confirm each one, sign included, with `stim.Circuit.has_flow`.
 
 **Moving a Majorana** (`move_majorana`) is a link measurement next to a
-Majorana, followed by the paper's fix for a -1 outcome: applying the link
-operators along the old dimer, which removes both fermions. The fix is
-feedforward, Paulis conditioned on the record (`CX rec[-1] ...`), so it
-removes k from the two pairs it touches. `fix=False` leaves the fermions,
-and a number between 0 and 1 is the chance of fixing: that coin is tossed
-when the program is built (pass `rng` to repeat it), not when it runs.
+Majorana, followed by a fix. `fix_value`, from -1 to 1, is the expected value
+of the dimer the move leaves behind: it reads +1 with probability
+(1 + fix_value) / 2 in every shot, so 1 always empties it (the default), -1
+always leaves a fermion and 0 is a fair coin. The far pair always matches it,
+so fermions still come in pairs.
+
+Every value is built the same way. First the paper's fix: the link operators
+along the old dimer, conditioned on the outcome record k (`CZ[fix:7]
+rec[-1] ...`), which makes both new pairs +1 and removes k from them. Then a
+coin: a record c that is 1 with probability (1 - fix_value) / 2, from a
+dedicated qubit after the lattice's (`R[coin:12]` and
+`HERALDED_PAULI_CHANNEL_1[coin:12](p, 0, 0, 0)`). The same links,
+conditioned on c (`CZ[flip:7]`), flip both pairs back, so their values
+become c. The coin is the only randomness, and it is independent of the
+measurement. On hardware it is a qubit rotated by RY(θ), with
+sin²(θ/2) = p, and measured; Stim has no such rotation, so it is written as
+the heralded channel, which gives the same record. `create_majoranas` and
+`route_majorana` take `fix_value` too; `measure_link` without one leaves the
+raw outcome.
 
 **Routing** (`route_majorana`) plans a route that never reuses a vertex,
 either as a stop or as a vertex moved across. Each move rewires the dimers it
@@ -206,6 +219,7 @@ tests and `examples/linking.py` do this by keeping moves inside a disc.
 ## Saving, replaying and running
 
 Instructions are tagged (`MPP[link:12]`, `X[pauli]`, `CX[fix:7]`,
+`R[coin:12]` and `HERALDED_PAULI_CHANNEL_1[coin:12]`, `CX[flip:7]`,
 `I[release:3]`, `MPP[readout:name]`, and `prepare` for the vacuum), so
 `Program.from_circuit(lattice, circuit)` rebuilds the bookkeeping from the
 circuit alone. Saving the circuit text saves the whole program.

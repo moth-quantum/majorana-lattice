@@ -51,7 +51,7 @@ def some_program(background="z"):
     v = majoranas(p)[0]
     p = readout(p, "before", p.pair_at(v))
     link, _ = majorana_moves(p, v)[0]
-    p = move_majorana(p, v, link, fix=True)
+    p = move_majorana(p, v, link, fix_value=1)
     return readout(p, "after", p.pair_at(majoranas(p)[0]))
 
 

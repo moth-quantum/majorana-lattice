@@ -51,7 +51,7 @@ p = split_dimer(p, Link(0, 1, "z"))       # two Majoranas, no gates applied
 a, b = majoranas(p)                       # Vertex(0, 1, "D.z"), Vertex(0, 1, "U.z")
 
 link, dest = majorana_moves(p, a)[0]      # moves on offer: [(link, destination)]
-p = move_majorana(p, a, link)             # measures the link, fixes a -1 by feedforward
+p = move_majorana(p, a, link)             # measures the link and fixes it: fix_value=1
 p = route_majorana(p, dest, Vertex(2, 3, "D.x"))
 
 p.circuit                                 # a plain stim.Circuit
@@ -59,6 +59,10 @@ res = run(p, shots=1000)                  # the only step that executes anything
 res.pairs()                               # every pair's value, per shot
 res.summary()                             # fermions, e and m, per shot
 ```
+
+`fix_value`, from -1 to 1, is the expected value of the dimer a move leaves
+behind: `move_majorana(p, a, link, fix_value=-0.8)` leaves a fermion in 90%
+of shots. Each fix uses a coin on one extra qubit (see `docs/conventions.md`).
 
 A pair's value is never measured to report it. The bookkeeping knows which
 measurement records it is the parity of, so `run` computes it per shot. To

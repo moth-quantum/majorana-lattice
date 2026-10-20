@@ -13,18 +13,27 @@ bookkeeping. Instructions carry tags (MPP[link:12], X[pauli], ...) so that
                                or join a released pair back (bookkeeping only)
   split_dimer(p, link)         release, addressed by the dimer's link
   measure_label(p, L)          measure every link with label L
-  create_majoranas(p, link)    measure a link between two dimers, fixing -1
+  create_majoranas(p, link)    measure a link between two dimers, with a fix
   fuse(p, link, name)          measure the link between two Majoranas
-  move_majorana(p, v, link)    move a Majorana across a link, fixing -1
+  move_majorana(p, v, link)    move a Majorana across a link, with a fix
   route_majorana(p, a, b)      walk a Majorana from a to b by moves
   move_fermion(p, v, link)     move the fermion on v's pair across a link
   move_anyon(p, f, link)       move the anyon on plaquette f across a link
   create_anyons(p, link)       flip the two plaquettes either side of a link
   readout(p, name, op)         measure any operator, for `run` to report
+
+The fix. A measurement that rewires a dimer gives the new dimer, and the pair
+at the far ends, a random value. With `fix_value` v, from -1 to 1, the new
+dimer reads +1 with probability (1 + v) / 2 in every shot: 1 always empties
+it, -1 always leaves a fermion, 0 is a fair coin. It is built the same way
+for every v: the paper's fix (the old dimer's links, conditioned on the
+outcome) makes it +1, then a coin that fires with probability (1 - v) / 2
+flips it back. The coin is a dedicated qubit beyond the lattice, written as
+R[coin] and HERALDED_PAULI_CHANNEL_1[coin](p, 0, 0, 0): a record that is 1
+with probability p. On hardware that is a qubit rotated by RY(theta), with
+sin^2(theta / 2) = p, and measured.
 """
 from __future__ import annotations
-
-import random
 
 import stim
 
@@ -36,13 +45,13 @@ _CTRL = {"X": "CX", "Y": "CY", "Z": "CZ"}
 
 
 # ------------------------------------------------------------- primitives
-def measure_link(p: Program, link, fix: bool | float = False, rng: random.Random | None = None,
-                 name: str | None = None) -> Program:
+def measure_link(p: Program, link, fix_value: float | None = None, name: str | None = None) -> Program:
     """Measure link (i, j). The pairs holding i and j are rewired: (i, a) and
-    (j, b) become the dimer (i, j) and the pair (a, b). With `fix`, a -1
-    outcome is undone by applying the links of the old dimer on one side,
-    conditioned on the outcome (a float is the chance of doing so, drawn
-    from `rng` now, not at run time). `name` makes the outcome a readout."""
+    (j, b) become the dimer (i, j) and the pair (a, b). With `fix_value` (from
+    -1 to 1; see the module docstring) the new dimer then reads +1 with
+    probability (1 + fix_value) / 2; without it, the raw outcome stands.
+    `name` makes the outcome a readout."""
+    fix_value = _check_fix_value(fix_value)
     if name is not None and name in p.readouts:
         raise ValueError(f"readout {name!r} already exists")
     lat = p.lattice
@@ -50,7 +59,6 @@ def measure_link(p: Program, link, fix: bool | float = False, rng: random.Random
     E = lat.edges[e]
     i, j = E.u, E.v
     K = link_pauli(lat, e)
-    do_fix = _decide(fix, rng)
     k = p.num_records
     pairs, owner = list(p.pairs), list(p.owner)
     pi, pj = owner[i], owner[j]
@@ -72,16 +80,19 @@ def measure_link(p: Program, link, fix: bool | float = False, rng: random.Random
         owner[i] = owner[j] = pi
         owner[a] = owner[b] = pj
         fixer = B if B.is_dimer else A if A.is_dimer else None
-    if do_fix and fixer is None:
-        raise ValueError(f"no dimer next to link {e} to fix a -1 outcome with")
+    if fix_value is not None and fixer is None:
+        raise ValueError(f"no dimer next to link {e} to fix the outcome with")
     tag = f"link:{e}" if name is None else f"link:{e}:{name}"
     readouts = p.readouts if name is None else {**p.readouts, name: k}
     q = p._evolve(instructions=p.instructions + (_mpp(K, tag),), pairs=tuple(pairs),
                   owner=tuple(owner), measurements=p.measurements + (("link", e),),
                   readouts=readouts)
-    if do_fix:
-        for f in fixer.path:
+    if fix_value is not None:
+        for f in fixer.path:                    # the paper's fix: now +1 in every shot
             q = _conditional_link(q, f, k)
+        q, c = _coin(q, e, (1 - fix_value) / 2)
+        for f in fixer.path:                    # back to -1 when the coin fires
+            q = _conditional_link(q, f, c, kind="flip")
     return q
 
 
@@ -155,15 +166,16 @@ def measure_label(p: Program, label: str) -> Program:
     return p
 
 
-def create_majoranas(p: Program, link, fix: bool | float = True, rng=None) -> Program:
+def create_majoranas(p: Program, link, fix_value: float = 1.0) -> Program:
     """Measure a link between two dimers: a new dimer forms and a Majorana
-    pair appears at the two far ends. A -1 outcome is fixed by default."""
+    pair appears at the two far ends. The new dimer reads +1 with probability
+    (1 + fix_value) / 2; the default always empties it."""
     lat = p.lattice
     E = lat.edges[resolve(lat, link, Link)]
     A, B = p.pairs[p.owner[E.u]], p.pairs[p.owner[E.v]]
     if p.owner[E.u] == p.owner[E.v] or not (A.is_dimer and B.is_dimer):
         raise ValueError(f"link {link} does not join two dimers")
-    return measure_link(p, link, fix=fix, rng=rng)
+    return measure_link(p, link, fix_value=fix_value)
 
 
 def fuse(p: Program, link, name: str | None = None) -> Program:
@@ -176,26 +188,28 @@ def fuse(p: Program, link, name: str | None = None) -> Program:
     return measure_link(p, link, name=name)
 
 
-def move_majorana(p: Program, v, link, fix: bool | float = True, rng=None) -> Program:
+def move_majorana(p: Program, v, link, fix_value: float = 1.0) -> Program:
     """Move the Majorana at v across a link; it lands two vertices along (see
-    majorana_moves). A -1 outcome is fixed by default."""
+    majorana_moves). The dimer it leaves behind reads +1 with probability
+    (1 + fix_value) / 2; the default always empties it."""
     lat = p.lattice
     e = resolve(lat, link, Link)
     q = resolve(lat, v, Vertex)
     if not any(resolve(lat, ee, Link) == e for ee, _ in Q.majorana_moves(p, q)):
         raise ValueError(f"the Majorana at {v} cannot move across link {link}")
-    return measure_link(p, e, fix=fix, rng=rng)
+    return measure_link(p, e, fix_value=fix_value)
 
 
-def route_majorana(p: Program, src, dst, avoid=(), fix: bool | float = True, rng=None) -> Program:
-    """Walk the Majorana at src to dst by moves, avoiding given vertices."""
+def route_majorana(p: Program, src, dst, avoid=(), fix_value: float = 1.0) -> Program:
+    """Walk the Majorana at src to dst by moves, avoiding given vertices, with
+    the same fix_value for every move."""
     if not Q.is_majorana(p, src):
         raise ValueError(f"vertex {src} is not a Majorana")
     plan = Q.plan_route(p, src, dst, avoid)
     if plan is None:
         raise ValueError(f"no route from {src} to {dst}")
     for q, e in plan:
-        p = move_majorana(p, q, e, fix, rng)
+        p = move_majorana(p, q, e, fix_value)
     return p
 
 
@@ -256,8 +270,12 @@ def _replay(p: Program, insts) -> Program:
         elif kind == "link":
             for _ in range(len(inst.targets_copy()) // 2):     # one-qubit gate on both ends
                 p = apply_link(p, int(arg))
-        elif kind == "fix":
-            p = _conditional_link(p, int(arg), p.num_records + groups[0][0].value)
+        elif kind in ("fix", "flip"):
+            p = _conditional_link(p, int(arg), p.num_records + groups[0][0].value, kind=kind)
+        elif kind == "coin" and inst.name == "R":
+            continue                            # re-emitted with the coin itself
+        elif kind == "coin":
+            p, _ = _coin(p, int(arg), inst.gate_args_copy()[0])
         elif kind == "pauli":
             for (t,) in groups:
                 p = apply_pauli(p, t.value, inst.name)
@@ -277,13 +295,13 @@ def _replay(p: Program, insts) -> Program:
 
 
 # ---------------------------------------------------------------- helpers
-def _conditional_link(p: Program, f: int, k: int) -> Program:
-    """Apply link f only if record k reads -1: toggles k in every pair the
-    link anticommutes with."""
+def _conditional_link(p: Program, f: int, k: int, kind: str = "fix") -> Program:
+    """Apply link f only if record k reads 1: toggles k in every pair the
+    link anticommutes with. `kind` is the tag: "fix" or "flip"."""
     lat = p.lattice
     F = lat.edges[f]
     rec = stim.target_rec(k - p.num_records)
-    inst = stim.CircuitInstruction(_CTRL[F.label.upper()], [rec, F.u, rec, F.v], tag=f"fix:{f}")
+    inst = stim.CircuitInstruction(_CTRL[F.label.upper()], [rec, F.u, rec, F.v], tag=f"{kind}:{f}")
     L = link_pauli(lat, f)
     pairs = tuple(P if P.op.commutes(L) or P.records is None
                   else Pair(P.a, P.b, P.path, P.op, P.kind, P.flip, P.records ^ {k})
@@ -305,10 +323,21 @@ def _mpp(op: stim.PauliString, tag: str) -> stim.CircuitInstruction:
     return stim.CircuitInstruction("MPP", _mpp_targets(op), tag=tag)
 
 
-def _decide(fix: bool | float, rng) -> bool:
-    """Whether to fix: True/False as given, or a coin with chance `fix`."""
-    if isinstance(fix, bool):
-        return fix
-    if fix >= 1 or fix <= 0:
-        return fix >= 1
-    return (rng or random).random() < fix
+def _coin(p: Program, e: int, prob: float) -> tuple[Program, int]:
+    """A record that is 1 with probability prob, from the coin qubit (the one
+    after the lattice's). Returns the program and the record's index."""
+    c = p.lattice.n
+    insts = (stim.CircuitInstruction("R", [c], tag=f"coin:{e}"),
+             stim.CircuitInstruction("HERALDED_PAULI_CHANNEL_1", [c], [prob, 0, 0, 0], tag=f"coin:{e}"))
+    return (p._evolve(instructions=p.instructions + insts,
+                      measurements=p.measurements + (("coin", e),)), p.num_records)
+
+
+def _check_fix_value(v) -> float | None:
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise TypeError(f"fix_value must be a number from -1 to 1, got {v!r}")
+    if not -1 <= v <= 1:
+        raise ValueError(f"fix_value must be from -1 to 1, got {v}")
+    return float(v)

@@ -193,17 +193,16 @@ def test_from_circuit_round_trip():
         [(P.a, P.b, P.kind, P.path, str(P.op), P.flip, P.records) for P in p.pairs]
 
 
-def test_fix_chance_is_drawn_when_building():
+@pytest.mark.parametrize("fix_value", [-1, -0.8, 0, 0.123456789, 1])
+def test_fix_value_survives_replay_from_text(fix_value):
     L = star(4, 4)
-
-    def build(seed):
-        rng, p = random.Random(seed), split_dimer(prepare(L), Link(1, 1, "z"))
-        for _ in range(6):
-            v = majoranas(p)[0]
-            p = move_majorana(p, v, majorana_moves(p, v)[0][0], fix=0.5, rng=rng)
-        return str(p.circuit)
-    assert build(1) == build(1)
-    assert len({build(s) for s in range(6)}) > 1
+    p = split_dimer(prepare(L), Link(1, 1, "z"))
+    for _ in range(3):
+        v = majoranas(p)[0]
+        p = move_majorana(p, v, majorana_moves(p, v)[0][0], fix_value=fix_value)
+    q = Program.from_circuit(L, stim.Circuit(str(p.circuit)))
+    assert str(q.circuit) == str(p.circuit) and q.measurements == p.measurements
+    assert [P.records for P in q.pairs] == [P.records for P in p.pairs]
 
 
 # ------------------------------------------------------------- executors
