@@ -60,9 +60,31 @@ res.pairs()                               # every pair's value, per shot
 res.summary()                             # fermions, e and m, per shot
 ```
 
+### Fixing a move
+
 `fix_value`, from -1 to 1, is the expected value of the dimer a move leaves
 behind: `move_majorana(p, a, link, fix_value=-0.8)` leaves a fermion in 90%
-of shots. Each fix uses a coin on one extra qubit (see `docs/conventions.md`).
+of shots. 1 (the default) always empties it, -1 always leaves a fermion, and
+0 gives 50/50. `create_majoranas` and `route_majorana` take it too.
+
+Every fix is built the same way, with one extra qubit after the lattice's,
+the fix qubit. It is rotated by RY(θ) with sin²(θ/2) = (1 - fix_value) / 2 and
+measured: reading 0, the move's dimer is corrected to +1; reading 1, to -1.
+Stim has no RY(θ), so the circuit writes the fix qubit as a heralded channel
+that gives the same record (see `docs/conventions.md`).
+
+`measure_link(p, link)` without a `fix_value` keeps the raw outcome and uses
+no fix qubit. That is deliberate, and it is not the same as `fix_value=0`:
+
+- a fusion's outcome is the result (in `examples/linking.py` it is -1 in every
+  shot), and two Majoranas have no dimer to correct with anyway;
+- a Floquet round repeated with `measure_label` repeats its outcomes;
+- a link whose ends are already paired has a determined outcome.
+
+Coupling a 50/50 fix qubit would randomise all of these. Pass a `fix_value`
+to `measure_link` only when it rewires a dimer and you want the fix.
+
+### Reading results
 
 A pair's value is never measured to report it. The bookkeeping knows which
 measurement records it is the parity of, so `run` computes it per shot. To

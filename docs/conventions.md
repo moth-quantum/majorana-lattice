@@ -116,22 +116,28 @@ confirm each one, sign included, with `stim.Circuit.has_flow`.
 Majorana, followed by a fix. `fix_value`, from -1 to 1, is the expected value
 of the dimer the move leaves behind: it reads +1 with probability
 (1 + fix_value) / 2 in every shot, so 1 always empties it (the default), -1
-always leaves a fermion and 0 is a fair coin. The far pair always matches it,
-so fermions still come in pairs.
+always leaves a fermion and 0 gives 50/50. The far pair always matches it, so
+fermions still come in pairs.
 
-Every value is built the same way. First the paper's fix: the link operators
-along the old dimer, conditioned on the outcome record k (`CZ[fix:7]
-rec[-1] ...`), which makes both new pairs +1 and removes k from them. Then a
-coin: a record c that is 1 with probability (1 - fix_value) / 2, from a
-dedicated qubit after the lattice's (`R[coin:12]` and
-`HERALDED_PAULI_CHANNEL_1[coin:12](p, 0, 0, 0)`). The same links,
-conditioned on c (`CZ[flip:7]`), flip both pairs back, so their values
-become c. The coin is the only randomness, and it is independent of the
-measurement. On hardware it is a qubit rotated by RY(θ), with
-sin²(θ/2) = p, and measured; Stim has no such rotation, so it is written as
-the heralded channel, which gives the same record. `create_majoranas` and
-`route_majorana` take `fix_value` too; `measure_link` without one leaves the
-raw outcome.
+Every value is built the same way, with the **fix qubit**: one extra qubit
+after the lattice's, reset, rotated by RY(θ) with sin²(θ/2) = (1 - fix_value)
+/ 2, and measured. Reading 0, the correction fixes the dimer to +1; reading
+1, to -1. The correction is the link operators along the old dimer, applied
+when the move's outcome and the fix qubit's reading differ. It is written as
+two conditional corrections that cancel when both fire: one on the outcome
+record (`CZ[fix:7] rec[-1] ...`, the paper's fix, which makes both new pairs
++1) and one on the fix qubit's record (`CZ[flip:7]`), so both pairs end up
+with the fix qubit's value. Stim has no RY(θ), so the fix qubit is written as
+`R[fix_qubit:12]` and `HERALDED_PAULI_CHANNEL_1[fix_qubit:12](p, 0, 0, 0)`, a
+record that is 1 with probability p, the same as measuring the rotated
+qubit. `create_majoranas` and `route_majorana` take `fix_value` too.
+
+`measure_link` without a `fix_value` keeps the raw outcome and uses no fix
+qubit. That is not the same as `fix_value=0`: a fusion's outcome is the
+result (the linking experiment's are -1 in every shot), a repeated Floquet
+round repeats its outcomes, and a link whose ends are already paired has a
+determined outcome. Coupling a 50/50 fix qubit would randomise all of these,
+and a fusion has no dimer to correct with anyway.
 
 **Routing** (`route_majorana`) plans a route that never reuses a vertex,
 either as a stop or as a vertex moved across. Each move rewires the dimers it
@@ -219,7 +225,7 @@ tests and `examples/linking.py` do this by keeping moves inside a disc.
 ## Saving, replaying and running
 
 Instructions are tagged (`MPP[link:12]`, `X[pauli]`, `CX[fix:7]`,
-`R[coin:12]` and `HERALDED_PAULI_CHANNEL_1[coin:12]`, `CX[flip:7]`,
+`R[fix_qubit:12]` and `HERALDED_PAULI_CHANNEL_1[fix_qubit:12]`, `CX[flip:7]`,
 `I[release:3]`, `MPP[readout:name]`, and `prepare` for the vacuum), so
 `Program.from_circuit(lattice, circuit)` rebuilds the bookkeeping from the
 circuit alone. Saving the circuit text saves the whole program.

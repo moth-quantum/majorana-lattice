@@ -25,13 +25,16 @@ bookkeeping. Instructions carry tags (MPP[link:12], X[pauli], ...) so that
 The fix. A measurement that rewires a dimer gives the new dimer, and the pair
 at the far ends, a random value. With `fix_value` v, from -1 to 1, the new
 dimer reads +1 with probability (1 + v) / 2 in every shot: 1 always empties
-it, -1 always leaves a fermion, 0 is a fair coin. It is built the same way
-for every v: the paper's fix (the old dimer's links, conditioned on the
-outcome) makes it +1, then a coin that fires with probability (1 - v) / 2
-flips it back. The coin is a dedicated qubit beyond the lattice, written as
-R[coin] and HERALDED_PAULI_CHANNEL_1[coin](p, 0, 0, 0): a record that is 1
-with probability p. On hardware that is a qubit rotated by RY(theta), with
-sin^2(theta / 2) = p, and measured.
+it, -1 always leaves a fermion, 0 is 50/50. It is built the same way for
+every v, with the fix qubit: one extra qubit after the lattice's, rotated by
+RY(theta) with sin^2(theta / 2) = p = (1 - v) / 2 and measured. Reading 0, the
+correction fixes the dimer to +1; reading 1, to -1. The correction is the old
+dimer's links, applied when the measurement outcome and the fix qubit differ:
+once conditioned on the outcome (tag fix) and once on the fix qubit (tag
+flip). Stim has no RY(theta), so the fix qubit is written as
+R[fix_qubit] and HERALDED_PAULI_CHANNEL_1[fix_qubit](p, 0, 0, 0), which gives
+a record that is 1 with probability p, the same as measuring the rotated
+qubit.
 """
 from __future__ import annotations
 
@@ -90,8 +93,8 @@ def measure_link(p: Program, link, fix_value: float | None = None, name: str | N
     if fix_value is not None:
         for f in fixer.path:                    # the paper's fix: now +1 in every shot
             q = _conditional_link(q, f, k)
-        q, c = _coin(q, e, (1 - fix_value) / 2)
-        for f in fixer.path:                    # back to -1 when the coin fires
+        q, c = _fix_qubit(q, e, (1 - fix_value) / 2)
+        for f in fixer.path:                    # back to -1 when the fix qubit reads 1
             q = _conditional_link(q, f, c, kind="flip")
     return q
 
@@ -272,10 +275,10 @@ def _replay(p: Program, insts) -> Program:
                 p = apply_link(p, int(arg))
         elif kind in ("fix", "flip"):
             p = _conditional_link(p, int(arg), p.num_records + groups[0][0].value, kind=kind)
-        elif kind == "coin" and inst.name == "R":
-            continue                            # re-emitted with the coin itself
-        elif kind == "coin":
-            p, _ = _coin(p, int(arg), inst.gate_args_copy()[0])
+        elif kind == "fix_qubit" and inst.name == "R":
+            continue                            # re-emitted with its measurement
+        elif kind == "fix_qubit":
+            p, _ = _fix_qubit(p, int(arg), inst.gate_args_copy()[0])
         elif kind == "pauli":
             for (t,) in groups:
                 p = apply_pauli(p, t.value, inst.name)
@@ -323,14 +326,14 @@ def _mpp(op: stim.PauliString, tag: str) -> stim.CircuitInstruction:
     return stim.CircuitInstruction("MPP", _mpp_targets(op), tag=tag)
 
 
-def _coin(p: Program, e: int, prob: float) -> tuple[Program, int]:
-    """A record that is 1 with probability prob, from the coin qubit (the one
-    after the lattice's). Returns the program and the record's index."""
+def _fix_qubit(p: Program, e: int, prob: float) -> tuple[Program, int]:
+    """Reset and read the fix qubit (the one after the lattice's): a record
+    that is 1 with probability prob. Returns the program and the record."""
     c = p.lattice.n
-    insts = (stim.CircuitInstruction("R", [c], tag=f"coin:{e}"),
-             stim.CircuitInstruction("HERALDED_PAULI_CHANNEL_1", [c], [prob, 0, 0, 0], tag=f"coin:{e}"))
+    insts = (stim.CircuitInstruction("R", [c], tag=f"fix_qubit:{e}"),
+             stim.CircuitInstruction("HERALDED_PAULI_CHANNEL_1", [c], [prob, 0, 0, 0], tag=f"fix_qubit:{e}"))
     return (p._evolve(instructions=p.instructions + insts,
-                      measurements=p.measurements + (("coin", e),)), p.num_records)
+                      measurements=p.measurements + (("fix_qubit", e),)), p.num_records)
 
 
 def _check_fix_value(v) -> float | None:

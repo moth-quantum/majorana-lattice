@@ -52,28 +52,28 @@ def test_fix_value_is_the_expected_value(fix_value):
     assert abs(mean - fix_value) < 0.03
 
 
-def test_the_new_dimer_is_the_coin():
-    """Whatever the measurement gave, the dimer's value is the coin's record,
-    so the result is independent of the outcome."""
+def test_the_new_dimer_is_the_fix_qubit():
+    """Whatever the measurement gave, the dimer's value is the fix qubit's
+    record, so the result is independent of the outcome."""
     p = one_move(0)
     res = run(p, shots=2000, seed=3)
     link = [k for k, m in enumerate(p.measurements) if m[0] == "link"][-1]
-    coin = [k for k, m in enumerate(p.measurements) if m[0] == "coin"][-1]
+    fq = [k for k, m in enumerate(p.measurements) if m[0] == "fix_qubit"][-1]
     fermions = res.summary()["fermions"]
-    assert ((fermions == 2) == res.bits[:, coin]).all()
+    assert ((fermions == 2) == res.bits[:, fq]).all()
     outcome = res.bits[:, link]
-    assert 0.4 < outcome.mean() < 0.6 and abs(np.corrcoef(outcome, res.bits[:, coin])[0, 1]) < 0.1
+    assert 0.4 < outcome.mean() < 0.6 and abs(np.corrcoef(outcome, res.bits[:, fq])[0, 1]) < 0.1
 
 
-def test_every_fix_uses_the_coin():
-    """The same instructions for every fix_value: measure, fix, coin, flip."""
+def test_every_fix_uses_the_fix_qubit():
+    """The same instructions for every fix_value: measure, fix, fix qubit, flip."""
     for fix_value in (-1, 0, 0.3, 1):
         p = one_move(fix_value)
-        assert [inst.tag.split(":")[0] for inst in p.instructions[-5:]] == ["link", "fix", "coin", "coin", "flip"]
+        assert [inst.tag.split(":")[0] for inst in p.instructions[-5:]] == ["link", "fix", "fix_qubit", "fix_qubit", "flip"]
         assert [inst.name for inst in p.instructions[-3:-1]] == ["R", "HERALDED_PAULI_CHANNEL_1"]
-        coin = p.instructions[-2]
-        assert coin.gate_args_copy() == [(1 - fix_value) / 2, 0, 0, 0]
-        assert coin.targets_copy()[0].value == p.lattice.n        # the extra qubit
+        fq = p.instructions[-2]
+        assert fq.gate_args_copy() == [(1 - fix_value) / 2, 0, 0, 0]
+        assert fq.targets_copy()[0].value == p.lattice.n          # the extra qubit
 
 
 @pytest.mark.parametrize("bad, error", [(1.5, ValueError), (-2, ValueError), (True, TypeError), ("1", TypeError)])
