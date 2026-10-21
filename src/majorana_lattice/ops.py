@@ -28,8 +28,10 @@ dimer reads +1 with probability (1 + v) / 2 in every shot: 1 always empties
 it, -1 always leaves a fermion, 0 is 50/50. It is built the same way for
 every v, with the fix qubit: one extra qubit after the lattice's, rotated by
 RY(theta) with sin^2(theta / 2) = p = (1 - v) / 2 and measured. Reading 0, the
-correction fixes the dimer to +1; reading 1, to -1. The correction is the old
-dimer's links, applied when the measurement outcome and the fix qubit differ:
+correction fixes the dimer to +1; reading 1, to -1. The correction is the links
+of one of the two old pairs (a dimer if there is one, so one link; between two
+Majorana pairs, the shorter string), applied when the measurement outcome and
+the fix qubit differ:
 once conditioned on the outcome (tag fix) and once on the fix qubit (tag
 flip). Stim has no RY(theta), so the fix qubit is written as
 R[fix_qubit] and HERALDED_PAULI_CHANNEL_1[fix_qubit](p, 0, 0, 0), which gives
@@ -52,7 +54,10 @@ def measure_link(p: Program, link, fix_value: float | None = None, name: str | N
     """Measure link (i, j). The pairs holding i and j are rewired: (i, a) and
     (j, b) become the dimer (i, j) and the pair (a, b). With `fix_value` (from
     -1 to 1; see the module docstring) the new dimer then reads +1 with
-    probability (1 + fix_value) / 2; without it, the raw outcome stands.
+    probability (1 + fix_value) / 2; without it, the raw outcome stands. Between
+    two different Majorana pairs (a collision) the outcome is the fusion channel
+    and a `fix_value` overrides it: use it to commit an outcome already observed
+    (+1 or -1), never to change what nature gave.
     `name` makes the outcome a readout."""
     fix_value = _check_fix_value(fix_value)
     if name is not None and name in p.readouts:
@@ -82,9 +87,13 @@ def measure_link(p: Program, link, fix_value: float | None = None, name: str | N
                          A.records ^ B.records ^ {k} if known else None)
         owner[i] = owner[j] = pi
         owner[a] = owner[b] = pj
-        fixer = B if B.is_dimer else A if A.is_dimer else None
+        # The pair whose string undoes the outcome: a dimer if there is one (one link), else the shorter of the two
+        # strings. Its operator anticommutes with the measured link (they share exactly one end, i or j) and
+        # commutes with every other tracked pair and plaquette, so applying it flips the new dimer and the new
+        # (a, b) pair and nothing else.
+        fixer = B if B.is_dimer else A if A.is_dimer else (A if len(A.path) <= len(B.path) else B)
     if fix_value is not None and fixer is None:
-        raise ValueError(f"no dimer next to link {e} to fix the outcome with")
+        raise ValueError(f"link {e} joins two pieces of the same pair: its outcome is determined, there is nothing to fix")
     tag = f"link:{e}" if name is None else f"link:{e}:{name}"
     readouts = p.readouts if name is None else {**p.readouts, name: k}
     q = p._evolve(instructions=p.instructions + (_mpp(K, tag),), pairs=tuple(pairs),
