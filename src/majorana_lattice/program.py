@@ -94,19 +94,15 @@ class Program:
     @property
     def circuit(self) -> stim.Circuit:
         """The whole program as a stim.Circuit (a fresh copy each time)."""
-        c = self.prep.copy()
-        for inst in self.instructions:
-            c.append(inst)
-        return c
+        return self.prep + self.instructions_circuit()
 
     def instructions_circuit(self) -> stim.Circuit:
         """Only the instructions after the vacuum prep. With the lattice and
         the background, that is everything needed to rebuild the program:
         Program.from_instructions(lattice, background, circuit)."""
-        c = stim.Circuit()
-        for inst in self.instructions:
-            c.append(inst)
-        return c
+        # One parse of the whole text is far faster than appending instructions
+        # one at a time (~60x for a long program), and _exact_line keeps it exact.
+        return stim.Circuit("\n".join(map(_exact_line, self.instructions)))
 
     @property
     def num_records(self) -> int:
@@ -271,6 +267,23 @@ def _gf2_nullspace(A: np.ndarray) -> np.ndarray:
     if pivots:
         N[:, pivots] = R[:, free].T
     return N
+
+
+def _exact_line(inst: stim.CircuitInstruction) -> str:
+    """The instruction as one line of Stim text that parses back to exactly the same
+    instruction. str(inst) prints gate arguments to about six significant digits, so a
+    fix qubit's probability such as 0.6576874589 would come back changed; print them in
+    full instead. Tags are already escaped by Stim, so the first ']' after the name
+    closes the tag."""
+    s = str(inst)
+    args = inst.gate_args_copy()
+    if not args:
+        return s
+    head = len(inst.name)
+    if inst.tag:
+        head = s.index("]", head) + 1
+    end = s.index(")", head)
+    return s[:head] + "(" + ", ".join(repr(a) for a in args) + ")" + s[end + 1:]
 
 
 def _mpp_targets(op: stim.PauliString) -> list:
